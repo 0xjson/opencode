@@ -193,7 +193,13 @@ export namespace Server {
       .use(async (c, next) => {
         if (c.req.path === "/log") return next()
         const rawWorkspaceID = c.req.query("workspace") || c.req.header("x-opencode-workspace")
-        const raw = c.req.query("directory") || c.req.header("x-opencode-directory") || process.cwd()
+        const raw = c.req.query("directory") || c.req.header("x-opencode-directory") || (() => {
+          // If OPENCODE_LAUNCH_DIR is set (e.g., from opencode-team wrapper), use it
+          if (process.env.OPENCODE_LAUNCH_DIR) {
+            return process.env.OPENCODE_LAUNCH_DIR
+          }
+          return process.cwd()
+        })()
         const directory = Filesystem.resolve(
           (() => {
             try {

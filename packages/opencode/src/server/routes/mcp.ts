@@ -179,6 +179,7 @@ export const McpRoutes = lazy(() =>
     .post(
       "/:name/connect",
       describeRoute({
+        summary: "Connect MCP server",
         description: "Connect an MCP server",
         operationId: "mcp.connect",
         responses: {
@@ -202,6 +203,7 @@ export const McpRoutes = lazy(() =>
     .post(
       "/:name/disconnect",
       describeRoute({
+        summary: "Disconnect MCP server",
         description: "Disconnect an MCP server",
         operationId: "mcp.disconnect",
         responses: {

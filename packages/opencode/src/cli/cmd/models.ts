@@ -7,6 +7,14 @@ import { cmd } from "./cmd"
 import { UI } from "../ui"
 import { EOL } from "os"
 
+function getLaunchDirectory(): string {
+  // If OPENCODE_LAUNCH_DIR is set (e.g., from opencode-team wrapper), use it
+  if (process.env.OPENCODE_LAUNCH_DIR) {
+    return process.env.OPENCODE_LAUNCH_DIR
+  }
+  return process.cwd()
+}
+
 export const ModelsCommand = cmd({
   command: "models [provider]",
   describe: "list all available models",
@@ -33,7 +41,7 @@ export const ModelsCommand = cmd({
     }
 
     await Instance.provide({
-      directory: process.cwd(),
+      directory: getLaunchDirectory(),
       async fn() {
         const providers = await Provider.list()
 

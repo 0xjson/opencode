@@ -40,6 +40,7 @@ import { NamedError } from "@opencode-ai/util/error"
 import { fn } from "@/util/fn"
 import { SessionProcessor } from "./processor"
 import { TaskTool } from "@/tool/task"
+import { TeamAutowake } from "@/team/autowake"
 import { Tool } from "@/tool/tool"
 import { PermissionNext } from "@/permission/next"
 import { SessionStatus } from "./status"
@@ -1331,6 +1332,22 @@ export namespace SessionPrompt {
   async function insertReminders(input: { messages: MessageV2.WithParts[]; agent: Agent.Info; session: Session.Info }) {
     const userMessage = input.messages.findLast((msg) => msg.info.role === "user")
     if (!userMessage) return input.messages
+
+    // Check for team auto-wake notifications
+    const teamName = input.session.metadata?.teamName as string | undefined
+    if (teamName) {
+      const wakeNotification = await TeamAutowake.getWakeNotification(teamName, input.agent.name)
+      if (wakeNotification) {
+        userMessage.parts.push({
+          id: PartID.ascending(),
+          messageID: userMessage.info.id,
+          sessionID: userMessage.info.sessionID,
+          type: "text",
+          text: `<system-reminder>\n${wakeNotification}\n</system-reminder>`,
+          synthetic: true,
+        })
+      }
+    }
 
     // Original logic when experimental plan mode is disabled
     if (!Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE) {

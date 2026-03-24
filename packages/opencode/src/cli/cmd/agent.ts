@@ -12,6 +12,14 @@ import { Instance } from "../../project/instance"
 import { EOL } from "os"
 import type { Argv } from "yargs"
 
+function getLaunchDirectory(): string {
+  // If OPENCODE_LAUNCH_DIR is set (e.g., from opencode-team wrapper), use it
+  if (process.env.OPENCODE_LAUNCH_DIR) {
+    return process.env.OPENCODE_LAUNCH_DIR
+  }
+  return process.cwd()
+}
+
 type AgentMode = "all" | "primary" | "subagent"
 
 const AVAILABLE_TOOLS = [
@@ -57,7 +65,7 @@ const AgentCreateCommand = cmd({
       }),
   async handler(args) {
     await Instance.provide({
-      directory: process.cwd(),
+      directory: getLaunchDirectory(),
       async fn() {
         const cliPath = args.path
         const cliDescription = args.description
@@ -230,7 +238,7 @@ const AgentListCommand = cmd({
   describe: "list all available agents",
   async handler() {
     await Instance.provide({
-      directory: process.cwd(),
+      directory: getLaunchDirectory(),
       async fn() {
         const agents = await Agent.list()
         const sortedAgents = agents.sort((a, b) => {

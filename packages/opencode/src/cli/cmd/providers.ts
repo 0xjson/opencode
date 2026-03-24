@@ -14,6 +14,14 @@ import type { Hooks } from "@opencode-ai/plugin"
 import { Process } from "../../util/process"
 import { text } from "node:stream/consumers"
 
+function getLaunchDirectory(): string {
+  // If OPENCODE_LAUNCH_DIR is set (e.g., from opencode-team wrapper), use it
+  if (process.env.OPENCODE_LAUNCH_DIR) {
+    return process.env.OPENCODE_LAUNCH_DIR
+  }
+  return process.cwd()
+}
+
 type PluginAuth = NonNullable<Hooks["auth"]>
 
 async function handlePluginAuth(plugin: { auth: PluginAuth }, provider: string, methodName?: string): Promise<boolean> {
@@ -268,7 +276,7 @@ export const ProvidersLoginCommand = cmd({
       }),
   async handler(args) {
     await Instance.provide({
-      directory: process.cwd(),
+      directory: getLaunchDirectory(),
       async fn() {
         UI.empty()
         prompts.intro("Add credential")

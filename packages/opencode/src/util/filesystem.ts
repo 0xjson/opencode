@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, writeFile } from "fs/promises"
+import { chmod, mkdir, readFile, writeFile, appendFile as fsAppendFile, readdir as fsReaddir, rmdir as fsRmdir } from "fs/promises"
 import { createWriteStream, existsSync, statSync } from "fs"
 import { lookup } from "mime-types"
 import { realpathSync } from "fs"
@@ -199,5 +199,25 @@ export namespace Filesystem {
       current = parent
     }
     return result
+  }
+
+  export async function mkdirp(p: string): Promise<void> {
+    await mkdir(p, { recursive: true })
+  }
+
+  export async function appendFile(p: string, content: string): Promise<void> {
+    await fsAppendFile(p, content, "utf-8")
+  }
+
+  export async function readDir(p: string): Promise<string[]> {
+    return fsReaddir(p)
+  }
+
+  export async function rmdir(p: string, options?: { recursive?: boolean }): Promise<void> {
+    if (options?.recursive) {
+      await fsRmdir(p, { recursive: true })
+    } else {
+      await fsRmdir(p)
+    }
   }
 }

@@ -16,6 +16,14 @@ import { modify, applyEdits } from "jsonc-parser"
 import { Filesystem } from "../../util/filesystem"
 import { Bus } from "../../bus"
 
+function getLaunchDirectory(): string {
+  // If OPENCODE_LAUNCH_DIR is set (e.g., from opencode-team wrapper), use it
+  if (process.env.OPENCODE_LAUNCH_DIR) {
+    return process.env.OPENCODE_LAUNCH_DIR
+  }
+  return process.cwd()
+}
+
 function getAuthStatusIcon(status: MCP.AuthStatus): string {
   switch (status) {
     case "authenticated":
@@ -70,7 +78,7 @@ export const McpListCommand = cmd({
   describe: "list MCP servers and their status",
   async handler() {
     await Instance.provide({
-      directory: process.cwd(),
+      directory: getLaunchDirectory(),
       async fn() {
         UI.empty()
         prompts.intro("MCP Servers")
@@ -147,7 +155,7 @@ export const McpAuthCommand = cmd({
       .command(McpAuthListCommand),
   async handler(args) {
     await Instance.provide({
-      directory: process.cwd(),
+      directory: getLaunchDirectory(),
       async fn() {
         UI.empty()
         prompts.intro("MCP OAuth Authentication")
@@ -284,7 +292,7 @@ export const McpAuthListCommand = cmd({
   describe: "list OAuth-capable MCP servers and their auth status",
   async handler() {
     await Instance.provide({
-      directory: process.cwd(),
+      directory: getLaunchDirectory(),
       async fn() {
         UI.empty()
         prompts.intro("MCP OAuth Status")
@@ -328,7 +336,7 @@ export const McpLogoutCommand = cmd({
     }),
   async handler(args) {
     await Instance.provide({
-      directory: process.cwd(),
+      directory: getLaunchDirectory(),
       async fn() {
         UI.empty()
         prompts.intro("MCP OAuth Logout")
@@ -420,7 +428,7 @@ export const McpAddCommand = cmd({
   describe: "add an MCP server",
   async handler() {
     await Instance.provide({
-      directory: process.cwd(),
+      directory: getLaunchDirectory(),
       async fn() {
         UI.empty()
         prompts.intro("Add MCP server")
@@ -590,7 +598,7 @@ export const McpDebugCommand = cmd({
     }),
   async handler(args) {
     await Instance.provide({
-      directory: process.cwd(),
+      directory: getLaunchDirectory(),
       async fn() {
         UI.empty()
         prompts.intro("MCP OAuth Debug")

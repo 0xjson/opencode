@@ -1,0 +1,1 @@
+export { Supabase } from "./client"

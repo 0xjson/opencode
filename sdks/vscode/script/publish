@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Get the latest Git tag
-latest_tag=$(git tag --sort=committerdate | grep -E '^vscode-v[0-9]+\.[0-9]+\.[0-9]+$' | tail -1)
+latest_tag=$(git tag --sort=committerdate | rg '^vscode-v[\d]+\.[\d]+\.[\d]+$' | tail -1)
 if [ -z "$latest_tag" ]; then
     echo "No tags found"
     exit 1

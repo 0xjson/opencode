@@ -4,6 +4,14 @@ import { Instance } from "@/project/instance"
 import { Process } from "@/util/process"
 import { git } from "@/util/git"
 
+function getLaunchDirectory(): string {
+  // If OPENCODE_LAUNCH_DIR is set (e.g., from opencode-team wrapper), use it
+  if (process.env.OPENCODE_LAUNCH_DIR) {
+    return process.env.OPENCODE_LAUNCH_DIR
+  }
+  return process.cwd()
+}
+
 export const PrCommand = cmd({
   command: "pr <number>",
   describe: "fetch and checkout a GitHub PR branch, then run opencode",
@@ -15,7 +23,7 @@ export const PrCommand = cmd({
     }),
   async handler(args) {
     await Instance.provide({
-      directory: process.cwd(),
+      directory: getLaunchDirectory(),
       async fn() {
         const project = Instance.project
         if (project.vcs !== "git") {

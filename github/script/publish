@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Get the latest Git tag
-latest_tag=$(git tag --sort=committerdate | grep -E '^github-v[0-9]+\.[0-9]+\.[0-9]+$' | tail -1)
+latest_tag=$(git tag --sort=committerdate | rg '^github-v[\d]+\.[\d]+\.[\d]+$' | tail -1)
 if [ -z "$latest_tag" ]; then
     echo "No tags found"
     exit 1

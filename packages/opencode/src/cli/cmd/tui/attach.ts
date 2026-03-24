@@ -6,6 +6,14 @@ import { TuiConfig } from "@/config/tui"
 import { Instance } from "@/project/instance"
 import { existsSync } from "fs"
 
+function getLaunchDirectory(): string {
+  // If OPENCODE_LAUNCH_DIR is set (e.g., from opencode-team wrapper), use it
+  if (process.env.OPENCODE_LAUNCH_DIR) {
+    return process.env.OPENCODE_LAUNCH_DIR
+  }
+  return process.cwd()
+}
+
 export const AttachCommand = cmd({
   command: "attach <url>",
   describe: "attach to a running opencode server",
@@ -67,7 +75,7 @@ export const AttachCommand = cmd({
         return { Authorization: auth }
       })()
       const config = await Instance.provide({
-        directory: directory && existsSync(directory) ? directory : process.cwd(),
+        directory: directory && existsSync(directory) ? directory : getLaunchDirectory(),
         fn: () => TuiConfig.get(),
       })
       await tui({

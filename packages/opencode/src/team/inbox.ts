@@ -1,0 +1,183 @@
+import { Team } from "./schema"
+import { TeamRegistry } from "./registry"
+import { Filesystem } from "../util/filesystem"
+import { Log } from "../util/log"
+import { ulid } from "ulid"
+
+const log = Log.create({ service: "team.inbox" })
+const MAX_MESSAGE_SIZE = 64 * 1024 // 64KB max message size
+
+export namespace TeamInbox {
+  export interface InboxMessage extends Team.Message {}
+
+  async function isTeamMember(teamName: string, agentName: string): Promise<boolean> {
+    const team = await TeamRegistry.getTeam(teamName)
+    if (!team) return false
+    // Check exact match, or if agentName contains the member name (for user profiles)
+    return team.members.some((m) => m.name === agentName || agentName.includes(m.name)) ||
+           team.lead === agentName ||
+           agentName.includes(team.lead)
+  }
+
+  export async function sendMessage(
+    teamName: string,
+    to: string,
+    from: string,
+    text: string,
+    type: Team.Message["type"] = "message",
+    metadata?: Record<string, any>
+  ): Promise<Team.Message> {
+    // Validate sender is team member
+    if (!(await isTeamMember(teamName, from))) {
+      throw new Error(`Sender "${from}" is not a member of team "${teamName}"`)
+    }
+
+    // Validate recipient is team member (except for system messages)
+    if (type !== "system" && !(await isTeamMember(teamName, to))) {
+      throw new Error(`Recipient "${to}" is not a member of team "${teamName}"`)
+    }
+
+    // Validate message size
+    if (text.length > MAX_MESSAGE_SIZE) {
+      throw new Error(`Message exceeds maximum size of ${MAX_MESSAGE_SIZE} bytes`)
+    }
+
+    const message: Team.Message = {
+      id: ulid(),
+      from,
+      to,
+      text,
+      timestamp: Date.now(),
+      read: false,
+      type,
+      metadata,
+    }
+
+    const inboxPath = await TeamRegistry.getInboxPath(teamName, to)
+    const line = JSON.stringify(message) + "\n"
+
+    await Filesystem.appendFile(inboxPath, line)
+    log.info(`Message sent from "${from}" to "${to}" in team "${teamName}"`)
+
+    return message
+  }
+
+  export async function broadcastMessage(
+    teamName: string,
+    from: string,
+    text: string,
+    excludeSender: boolean = true
+  ): Promise<Team.Message[]> {
+    const team = await TeamRegistry.getTeam(teamName)
+    if (!team) {
+      throw new Error(`Team "${teamName}" not found`)
+    }
+
+    const messages: Team.Message[] = []
+
+    for (const member of team.members) {
+      if (excludeSender && member.name === from) continue
+
+      const message = await sendMessage(teamName, member.name, from, text, "broadcast")
+      messages.push(message)
+    }
+
+    log.info(`Broadcast sent from "${from}" to ${messages.length} members in team "${teamName}"`)
+    return messages
+  }
+
+  export async function getMessages(
+    teamName: string,
+    agentName: string,
+    options: {
+      unreadOnly?: boolean
+      since?: number
+      limit?: number
+    } = {}
+  ): Promise<Team.Message[]> {
+    const inboxPath = await TeamRegistry.getInboxPath(teamName, agentName)
+    const exists = await Filesystem.exists(inboxPath)
+    if (!exists) return []
+
+    const content = await Filesystem.readText(inboxPath).catch(() => "")
+    if (!content) return []
+
+    const lines = content.split("\n").filter(Boolean)
+    const messages: Team.Message[] = []
+
+    for (const line of lines) {
+      try {
+        const msg = JSON.parse(line) as Team.Message
+
+        if (options.unreadOnly && msg.read) continue
+        if (options.since && msg.timestamp < options.since) continue
+
+        messages.push(msg)
+      } catch {
+        // Skip invalid lines
+      }
+    }
+
+    if (options.limit) {
+      return messages.slice(-options.limit)
+    }
+
+    return messages
+  }
+
+  export async function markRead(
+    teamName: string,
+    agentName: string,
+    messageIds?: string[]
+  ): Promise<number> {
+    const inboxPath = await TeamRegistry.getInboxPath(teamName, agentName)
+    const exists = await Filesystem.exists(inboxPath)
+    if (!exists) return 0
+
+    const content = await Filesystem.readText(inboxPath).catch(() => "")
+    if (!content) return 0
+
+    const lines = content.split("\n").filter(Boolean)
+    let markedCount = 0
+    const updatedLines: string[] = []
+
+    for (const line of lines) {
+      try {
+        const msg = JSON.parse(line) as Team.Message
+
+        if (!msg.read) {
+          if (!messageIds || messageIds.includes(msg.id)) {
+            msg.read = true
+            markedCount++
+          }
+        }
+
+        updatedLines.push(JSON.stringify(msg))
+      } catch {
+        updatedLines.push(line)
+      }
+    }
+
+    if (markedCount > 0) {
+      await Filesystem.writeText(inboxPath, updatedLines.join("\n") + "\n")
+      log.info(`Marked ${markedCount} messages as read for "${agentName}" in team "${teamName}"`)
+    }
+
+    return markedCount
+  }
+
+  export async function getUnreadCount(teamName: string, agentName: string): Promise<number> {
+    const messages = await getMessages(teamName, agentName, { unreadOnly: true })
+    return messages.length
+  }
+
+  export async function sendReceipt(
+    teamName: string,
+    to: string,
+    from: string,
+    messageIds: string[]
+  ): Promise<Team.Message> {
+    const text = JSON.stringify({ type: "read_receipt", messageIds })
+    return sendMessage(teamName, to, from, text, "receipt")
+  }
+}

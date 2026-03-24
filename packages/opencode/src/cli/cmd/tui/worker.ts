@@ -12,6 +12,14 @@ import type { BunWebSocketData } from "hono/bun"
 import { Flag } from "@/flag/flag"
 import { setTimeout as sleep } from "node:timers/promises"
 
+function getLaunchDirectory(): string {
+  // If OPENCODE_LAUNCH_DIR is set (e.g., from opencode-team wrapper), use it
+  if (process.env.OPENCODE_LAUNCH_DIR) {
+    return process.env.OPENCODE_LAUNCH_DIR
+  }
+  return process.cwd()
+}
+
 await Log.init({
   print: process.argv.includes("--print-logs"),
   dev: Installation.isLocal(),
@@ -96,7 +104,7 @@ const startEventStream = (input: { directory: string; workspaceID?: string }) =>
   })
 }
 
-startEventStream({ directory: process.cwd() })
+startEventStream({ directory: getLaunchDirectory() })
 
 export const rpc = {
   async fetch(input: { url: string; method: string; headers: Record<string, string>; body?: string }) {
@@ -137,7 +145,7 @@ export const rpc = {
     await Instance.disposeAll()
   },
   async setWorkspace(input: { workspaceID?: string }) {
-    startEventStream({ directory: process.cwd(), workspaceID: input.workspaceID })
+    startEventStream({ directory: getLaunchDirectory(), workspaceID: input.workspaceID })
   },
   async shutdown() {
     Log.Default.info("worker shutting down")

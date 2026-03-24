@@ -18,6 +18,14 @@ import type {
 } from "@octokit/webhooks-types"
 import { UI } from "../ui"
 import { cmd } from "./cmd"
+
+function getLaunchDirectory(): string {
+  // If OPENCODE_LAUNCH_DIR is set (e.g., from opencode-team wrapper), use it
+  if (process.env.OPENCODE_LAUNCH_DIR) {
+    return process.env.OPENCODE_LAUNCH_DIR
+  }
+  return process.cwd()
+}
 import { ModelsDev } from "../../provider/models"
 import { Instance } from "@/project/instance"
 import { bootstrap } from "../bootstrap"
@@ -201,7 +209,7 @@ export const GithubInstallCommand = cmd({
   describe: "install the GitHub agent",
   async handler() {
     await Instance.provide({
-      directory: process.cwd(),
+      directory: getLaunchDirectory(),
       async fn() {
         {
           UI.empty()
