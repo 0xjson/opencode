@@ -75,10 +75,14 @@ export namespace TeamInbox {
 
     const messages: Team.Message[] = []
 
-    for (const member of team.members) {
-      if (excludeSender && member.name === from) continue
+    // Collect all recipients (members + lead)
+    const recipients = new Set<string>(team.members.map((m) => m.name))
+    recipients.add(team.lead)
 
-      const message = await sendMessage(teamName, member.name, from, text, "broadcast")
+    for (const recipient of recipients) {
+      if (excludeSender && recipient === from) continue
+
+      const message = await sendMessage(teamName, recipient, from, text, "broadcast")
       messages.push(message)
     }
 
@@ -93,6 +97,7 @@ export namespace TeamInbox {
       unreadOnly?: boolean
       since?: number
       limit?: number
+      from?: string
     } = {}
   ): Promise<Team.Message[]> {
     const inboxPath = await TeamRegistry.getInboxPath(teamName, agentName)
@@ -111,6 +116,7 @@ export namespace TeamInbox {
 
         if (options.unreadOnly && msg.read) continue
         if (options.since && msg.timestamp < options.since) continue
+        if (options.from && msg.from !== options.from) continue
 
         messages.push(msg)
       } catch {
@@ -128,8 +134,10 @@ export namespace TeamInbox {
   export async function markRead(
     teamName: string,
     agentName: string,
-    messageIds?: string[]
+    options?: { messageIds?: string[] } | string[]
   ): Promise<number> {
+    // Handle both old signature (string[]) and new signature ({ messageIds?: string[] })
+    const messageIds = Array.isArray(options) ? options : options?.messageIds
     const inboxPath = await TeamRegistry.getInboxPath(teamName, agentName)
     const exists = await Filesystem.exists(inboxPath)
     if (!exists) return 0
@@ -179,5 +187,25 @@ export namespace TeamInbox {
   ): Promise<Team.Message> {
     const text = JSON.stringify({ type: "read_receipt", messageIds })
     return sendMessage(teamName, to, from, text, "receipt")
+  }
+
+  // Aliases for backward compatibility with tests
+  export const broadcast = broadcastMessage
+
+  export async function hasUnread(teamName: string, agentName: string): Promise<boolean> {
+    const count = await getUnreadCount(teamName, agentName)
+    return count > 0
+  }
+
+  export async function countUnread(teamName: string, agentName: string): Promise<number> {
+    return getUnreadCount(teamName, agentName)
+  }
+
+  export async function clearInbox(teamName: string, agentName: string): Promise<void> {
+    const inboxPath = await TeamRegistry.getInboxPath(teamName, agentName)
+    const exists = await Filesystem.exists(inboxPath)
+    if (exists) {
+      await Filesystem.writeText(inboxPath, "")
+    }
   }
 }

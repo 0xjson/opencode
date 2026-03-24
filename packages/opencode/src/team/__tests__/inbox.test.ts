@@ -5,18 +5,24 @@ import os from "os"
 import { Filesystem } from "../../util/filesystem"
 import { TeamRegistry } from "../registry"
 
-const TEST_TEAM_DIR = path.join(os.tmpdir(), "opencode-test-teams", Date.now().toString())
-
 describe("TeamInbox", () => {
   const TEST_TEAM = "test-inbox-team"
+  let testTeamDir: string
+  let originalTeamsDir: string | undefined
 
   beforeEach(async () => {
+    // Store original env var and set test directory
+    originalTeamsDir = process.env.OPENCODE_TEAMS_DIR
+    testTeamDir = path.join(os.tmpdir(), "opencode-test-teams", Date.now().toString())
+    process.env.OPENCODE_TEAMS_DIR = testTeamDir
+
+    // Clean up any leftover test directory and create fresh
     try {
-      await Filesystem.rmdir(TEST_TEAM_DIR, { recursive: true })
+      await Filesystem.rmdir(testTeamDir, { recursive: true })
     } catch {
       // Directory might not exist
     }
-    await Filesystem.mkdirp(TEST_TEAM_DIR)
+    await Filesystem.mkdirp(testTeamDir)
 
     await TeamRegistry.createTeam({
       team: TEST_TEAM,
@@ -29,16 +35,24 @@ describe("TeamInbox", () => {
   })
 
   afterEach(async () => {
+    // Clean up test directory
     try {
-      await Filesystem.rmdir(TEST_TEAM_DIR, { recursive: true })
+      await Filesystem.rmdir(testTeamDir, { recursive: true })
     } catch {
       // Directory might not exist
+    }
+
+    // Restore original env var
+    if (originalTeamsDir === undefined) {
+      delete process.env.OPENCODE_TEAMS_DIR
+    } else {
+      process.env.OPENCODE_TEAMS_DIR = originalTeamsDir
     }
   })
 
   describe("sendMessage", () => {
     it("should deliver message to recipient inbox", async () => {
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Hello agent2!")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Hello agent2!")
 
       const messages = await TeamInbox.getMessages(TEST_TEAM, "agent2")
       expect(messages).toHaveLength(1)
@@ -50,8 +64,8 @@ describe("TeamInbox", () => {
     })
 
     it("should assign unique message IDs", async () => {
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Message 1")
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Message 2")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Message 1")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Message 2")
 
       const messages = await TeamInbox.getMessages(TEST_TEAM, "agent2")
       expect(messages[0].id).not.toBe(messages[1].id)
@@ -59,7 +73,7 @@ describe("TeamInbox", () => {
 
     it("should assign timestamps", async () => {
       const before = Date.now()
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Timestamped")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Timestamped")
       const after = Date.now()
 
       const messages = await TeamInbox.getMessages(TEST_TEAM, "agent2")
@@ -68,8 +82,8 @@ describe("TeamInbox", () => {
     })
 
     it("should support different message types", async () => {
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Broadcast message", { type: "broadcast" })
-      await TeamInbox.sendMessage(TEST_TEAM, "system", "agent2", "System message", { type: "system" })
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Broadcast message", "broadcast")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "System message", "system")
 
       const messages = await TeamInbox.getMessages(TEST_TEAM, "agent2")
       expect(messages[0].type).toBe("broadcast")
@@ -77,9 +91,7 @@ describe("TeamInbox", () => {
     })
 
     it("should support metadata", async () => {
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "With metadata", {
-        metadata: { taskId: "task-123", priority: "high" },
-      })
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "With metadata", "message", { taskId: "task-123", priority: "high" })
 
       const messages = await TeamInbox.getMessages(TEST_TEAM, "agent2")
       expect(messages[0].metadata).toEqual({ taskId: "task-123", priority: "high" })
@@ -119,27 +131,33 @@ describe("TeamInbox", () => {
 
       await TeamInbox.broadcast(singleTeam, "leader", "Hello?")
 
-      // No exceptions, no messages delivered
+      // Message should be delivered to the member (leader is excluded as sender)
       const messages = await TeamInbox.getMessages(singleTeam, "only-member")
-      expect(messages).toHaveLength(0)
+      expect(messages).toHaveLength(1)
+      expect(messages[0].text).toBe("Hello?")
+      expect(messages[0].type).toBe("broadcast")
+
+      // Clean up the additional team
+      await TeamRegistry.deleteTeam(singleTeam)
     })
   })
 
   describe("getMessages", () => {
     it("should return all messages by default", async () => {
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Message 1")
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Message 2")
-      await TeamInbox.sendMessage(TEST_TEAM, "test-lead", "agent2", "Message 3")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Message 1")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Message 2")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "test-lead", "Message 3")
 
       const messages = await TeamInbox.getMessages(TEST_TEAM, "agent2")
       expect(messages).toHaveLength(3)
     })
 
     it("should filter by unread status", async () => {
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Unread")
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Will be read")
-      await TeamInbox.markRead(TEST_TEAM, "agent2")
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Also unread")
+      const msg1 = await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Unread")
+      const msg2 = await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Will be read")
+      // Mark only the second message as read
+      await TeamInbox.markRead(TEST_TEAM, "agent2", [msg2.id])
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Also unread")
 
       const unreadMessages = await TeamInbox.getMessages(TEST_TEAM, "agent2", { unreadOnly: true })
       expect(unreadMessages).toHaveLength(2)
@@ -148,9 +166,9 @@ describe("TeamInbox", () => {
     })
 
     it("should filter by sender", async () => {
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "From agent1")
-      await TeamInbox.sendMessage(TEST_TEAM, "test-lead", "agent2", "From lead")
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "From agent1 again")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "From agent1")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "test-lead", "From lead")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "From agent1 again")
 
       const fromAgent1 = await TeamInbox.getMessages(TEST_TEAM, "agent2", { from: "agent1" })
       expect(fromAgent1).toHaveLength(2)
@@ -159,7 +177,7 @@ describe("TeamInbox", () => {
 
     it("should limit results", async () => {
       for (let i = 0; i < 10; i++) {
-        await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", `Message ${i}`)
+        await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", `Message ${i}`)
       }
 
       const messages = await TeamInbox.getMessages(TEST_TEAM, "agent2", { limit: 3 })
@@ -167,10 +185,10 @@ describe("TeamInbox", () => {
     })
 
     it("should combine filters", async () => {
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Old unread from agent1")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Old unread from agent1")
       await TeamInbox.markRead(TEST_TEAM, "agent2")
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "New unread from agent1")
-      await TeamInbox.sendMessage(TEST_TEAM, "test-lead", "agent2", "Unread from lead")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "New unread from agent1")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "test-lead", "Unread from lead")
 
       const filtered = await TeamInbox.getMessages(TEST_TEAM, "agent2", {
         from: "agent1",
@@ -190,8 +208,8 @@ describe("TeamInbox", () => {
 
   describe("markRead", () => {
     it("should mark all messages as read by default", async () => {
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Message 1")
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Message 2")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Message 1")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Message 2")
 
       const markedCount = await TeamInbox.markRead(TEST_TEAM, "agent2")
 
@@ -201,8 +219,8 @@ describe("TeamInbox", () => {
     })
 
     it("should mark only specific message IDs", async () => {
-      const msg1 = await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Message 1")
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Message 2")
+      const msg1 = await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Message 1")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Message 2")
 
       const markedCount = await TeamInbox.markRead(TEST_TEAM, "agent2", { messageIds: [msg1.id] })
 
@@ -220,7 +238,7 @@ describe("TeamInbox", () => {
     })
 
     it("should persist read status", async () => {
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Test")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Test")
       await TeamInbox.markRead(TEST_TEAM, "agent2")
 
       // Reload from disk
@@ -231,12 +249,12 @@ describe("TeamInbox", () => {
 
   describe("hasUnread", () => {
     it("should return true when unread messages exist", async () => {
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Unread")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Unread")
       expect(await TeamInbox.hasUnread(TEST_TEAM, "agent2")).toBe(true)
     })
 
     it("should return false when all messages are read", async () => {
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Read")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Read")
       await TeamInbox.markRead(TEST_TEAM, "agent2")
       expect(await TeamInbox.hasUnread(TEST_TEAM, "agent2")).toBe(false)
     })
@@ -248,16 +266,16 @@ describe("TeamInbox", () => {
 
   describe("countUnread", () => {
     it("should count unread messages", async () => {
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Unread 1")
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Unread 2")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Unread 1")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Unread 2")
       await TeamInbox.markRead(TEST_TEAM, "agent2")
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Unread 3")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Unread 3")
 
       expect(await TeamInbox.countUnread(TEST_TEAM, "agent2")).toBe(1)
     })
 
     it("should return 0 when no unread messages", async () => {
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Read")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Read")
       await TeamInbox.markRead(TEST_TEAM, "agent2")
       expect(await TeamInbox.countUnread(TEST_TEAM, "agent2")).toBe(0)
     })
@@ -265,8 +283,8 @@ describe("TeamInbox", () => {
 
   describe("clearInbox", () => {
     it("should remove all messages", async () => {
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Message 1")
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Message 2")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Message 1")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Message 2")
 
       await TeamInbox.clearInbox(TEST_TEAM, "agent2")
 
@@ -275,8 +293,8 @@ describe("TeamInbox", () => {
     })
 
     it("should only clear specified agent inbox", async () => {
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "For agent2")
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "test-lead", "For lead")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "For agent2")
+      await TeamInbox.sendMessage(TEST_TEAM, "test-lead", "agent1", "For lead")
 
       await TeamInbox.clearInbox(TEST_TEAM, "agent2")
 
@@ -290,9 +308,9 @@ describe("TeamInbox", () => {
 
   describe("JSONL Persistence", () => {
     it("should store messages in JSONL format", async () => {
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "JSONL test")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "JSONL test")
 
-      const inboxPath = path.join(TEST_TEAM_DIR, TEST_TEAM, "inboxes", "agent2.jsonl")
+      const inboxPath = path.join(testTeamDir, TEST_TEAM, "inboxes", "agent2.jsonl")
       const content = await Filesystem.readText(inboxPath)
 
       expect(content).toContain("JSONL test")
@@ -305,10 +323,10 @@ describe("TeamInbox", () => {
     })
 
     it("should append new messages to existing file", async () => {
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Line 1")
-      await TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", "Line 2")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Line 1")
+      await TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", "Line 2")
 
-      const inboxPath = path.join(TEST_TEAM_DIR, TEST_TEAM, "inboxes", "agent2.jsonl")
+      const inboxPath = path.join(testTeamDir, TEST_TEAM, "inboxes", "agent2.jsonl")
       const content = await Filesystem.readText(inboxPath)
       const lines = content.trim().split("\n")
 
@@ -317,7 +335,7 @@ describe("TeamInbox", () => {
 
     it("should handle corrupted inbox gracefully", async () => {
       // Manually create corrupted inbox file
-      const inboxPath = path.join(TEST_TEAM_DIR, TEST_TEAM, "inboxes", "agent2.jsonl")
+      const inboxPath = path.join(testTeamDir, TEST_TEAM, "inboxes", "agent2.jsonl")
       await Filesystem.mkdirp(path.dirname(inboxPath))
       await Filesystem.writeText(inboxPath, "{invalid json\n{valid: json}")
 
@@ -329,7 +347,7 @@ describe("TeamInbox", () => {
   describe("Concurrent Operations", () => {
     it("should handle concurrent message sends", async () => {
       const promises = Array.from({ length: 20 }, (_, i) =>
-        TeamInbox.sendMessage(TEST_TEAM, "agent1", "agent2", `Message ${i}`)
+        TeamInbox.sendMessage(TEST_TEAM, "agent2", "agent1", `Message ${i}`)
       )
 
       await Promise.all(promises)

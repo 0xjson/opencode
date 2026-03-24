@@ -5,12 +5,15 @@ import { Filesystem } from "../util/filesystem"
 import { Global } from "../global"
 import { Log } from "../util/log"
 
-const TEAM_DIR = path.join(os.homedir(), ".opencode", "teams")
 const log = Log.create({ service: "team.registry" })
+
+function getTeamDir(): string {
+  return process.env.OPENCODE_TEAMS_DIR || path.join(os.homedir(), ".opencode", "teams")
+}
 
 export namespace TeamRegistry {
   export async function ensureTeamDir(teamName: string): Promise<string> {
-    const dir = path.join(TEAM_DIR, teamName)
+    const dir = path.join(getTeamDir(), teamName)
     await Filesystem.mkdirp(dir)
     return dir
   }
@@ -70,14 +73,15 @@ export namespace TeamRegistry {
   }
 
   export async function listTeams(): Promise<string[]> {
-    const exists = await Filesystem.exists(TEAM_DIR)
+    const teamDir = getTeamDir()
+    const exists = await Filesystem.exists(teamDir)
     if (!exists) return []
 
-    const entries = await Filesystem.readdir(TEAM_DIR)
+    const entries = await Filesystem.readdir(teamDir)
     const teams: string[] = []
 
     for (const entry of entries) {
-      const configPath = path.join(TEAM_DIR, entry, "config.json")
+      const configPath = path.join(teamDir, entry, "config.json")
       const exists = await Filesystem.exists(configPath)
       if (exists) {
         teams.push(entry)
@@ -105,7 +109,7 @@ export namespace TeamRegistry {
   }
 
   export async function deleteTeam(teamName: string): Promise<void> {
-    const teamDir = path.join(TEAM_DIR, teamName)
+    const teamDir = path.join(getTeamDir(), teamName)
     const exists = await Filesystem.exists(teamDir)
     if (!exists) {
       throw new Error(`Team "${teamName}" not found`)

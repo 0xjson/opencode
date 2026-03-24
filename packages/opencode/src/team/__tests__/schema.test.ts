@@ -5,7 +5,7 @@ import { z } from "zod"
 describe("Team Schema", () => {
   describe("MemberState", () => {
     it("should validate valid member states", () => {
-      const validStates = ["ready", "busy", "shutdown_requested", "shutdown", "error"]
+      const validStates = ["ready", "busy", "shutdown_requested", "shutdown", "error"] as const
       for (const state of validStates) {
         expect(Team.MemberState.parse(state)).toBe(state)
       }
@@ -26,7 +26,7 @@ describe("Team Schema", () => {
         "complete",
         "cancelling",
         "idle",
-      ]
+      ] as const
       for (const state of validStates) {
         expect(Team.ExecutionState.parse(state)).toBe(state)
       }
@@ -39,7 +39,7 @@ describe("Team Schema", () => {
 
   describe("TaskStatus", () => {
     it("should validate valid task statuses", () => {
-      const validStatuses = ["pending", "in_progress", "completed", "failed", "blocked"]
+      const validStatuses = ["pending", "in_progress", "completed", "failed", "blocked"] as const
       for (const status of validStatuses) {
         expect(Team.TaskStatus.parse(status)).toBe(status)
       }
@@ -114,8 +114,8 @@ describe("Team Schema", () => {
         agentName: "agent1",
         model: "sonnet",
         teamName: "my-team",
-        status: "ready",
-        executionStatus: "idle",
+        status: "ready" as const,
+        executionStatus: "idle" as const,
         createdAt: Date.now(),
         lastActivity: Date.now(),
       }
@@ -128,8 +128,8 @@ describe("Team Schema", () => {
         agentName: "agent1",
         model: "sonnet",
         teamName: "my-team",
-        status: "ready",
-        executionStatus: "idle",
+        status: "ready" as const,
+        executionStatus: "idle" as const,
         createdAt: Date.now(),
       }
       expect(Team.Session.parse(session)).toEqual(session)
@@ -164,7 +164,7 @@ describe("Team Schema", () => {
     })
 
     it("should validate message types", () => {
-      const types = ["message", "broadcast", "system", "receipt"]
+      const types = ["message", "broadcast", "system", "receipt"] as const
       for (const type of types) {
         const message = {
           id: "msg-123",
@@ -173,7 +173,7 @@ describe("Team Schema", () => {
           text: "Hello",
           timestamp: Date.now(),
           read: false,
-          type: type as any,
+          type: type,
         }
         expect(Team.Message.parse(message).type).toBe(type)
       }
@@ -185,7 +185,7 @@ describe("Team Schema", () => {
       const task = {
         id: "task-123",
         description: "Do something",
-        status: "pending",
+        status: "pending" as const,
         claimedBy: null,
         dependsOn: [],
         createdAt: Date.now(),
@@ -197,7 +197,7 @@ describe("Team Schema", () => {
       const task = {
         id: "task-123",
         description: "Do something",
-        status: "in_progress",
+        status: "in_progress" as const,
         claimedBy: "agent1",
         dependsOn: ["task-456", "task-789"],
         createdAt: Date.now(),
@@ -211,7 +211,7 @@ describe("Team Schema", () => {
       const task = {
         id: "task-123",
         description: "Do something",
-        status: "pending",
+        status: "pending" as const,
         claimedBy: null,
         dependsOn: ["task-456"],
         createdAt: Date.now(),

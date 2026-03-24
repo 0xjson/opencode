@@ -213,6 +213,16 @@ export namespace Filesystem {
     return fsReaddir(p)
   }
 
+  // Alias for compatibility
+  export async function readdir(p: string): Promise<string[]> {
+    return fsReaddir(p)
+  }
+
+  // Alias for write with text content
+  export async function writeText(p: string, content: string): Promise<void> {
+    return write(p, content)
+  }
+
   export async function rmdir(p: string, options?: { recursive?: boolean }): Promise<void> {
     if (options?.recursive) {
       await fsRmdir(p, { recursive: true })

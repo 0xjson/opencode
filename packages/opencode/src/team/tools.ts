@@ -125,14 +125,6 @@ export const TeamCheckInboxTool = Tool.define(
         limit: args.limit,
       })
 
-      if (messages.length === 0) {
-        return {
-          title: "Inbox Empty",
-          output: "No messages in your inbox.",
-          metadata: { count: 0 },
-        }
-      }
-
       const formatted = messages
         .map((m) => {
           const time = new Date(m.timestamp).toLocaleTimeString()
@@ -141,8 +133,8 @@ export const TeamCheckInboxTool = Tool.define(
         .join("\n")
 
       return {
-        title: `Inbox (${messages.length} messages)`,
-        output: formatted,
+        title: messages.length === 0 ? "Inbox Empty" : `Inbox (${messages.length} messages)`,
+        output: messages.length === 0 ? "No messages in your inbox." : formatted,
         metadata: {
           count: messages.length,
           messages: messages.map((m) => ({
@@ -169,12 +161,12 @@ export const TeamMarkReadTool = Tool.define(
         .describe("Specific message IDs to mark as read (omit to mark all)"),
     }),
     execute: async (args, ctx) => {
-      const count = await TeamInbox.markRead(args.team, ctx.agent, args.messageIds)
+      const count = await TeamInbox.markRead(args.team, ctx.agent, { messageIds: args.messageIds })
 
       return {
         title: "Messages Marked Read",
         output: `Marked ${count} messages as read`,
-        metadata: { markedCount: count },
+        metadata: { success: true, markedCount: count },
       }
     },
   })
@@ -239,19 +231,14 @@ export const TeamClaimTaskTool = Tool.define(
     execute: async (args, ctx) => {
       const result = await TeamTasks.claimTask(args.team, args.taskId, ctx.agent)
 
-      if (!result.success) {
-        return {
-          title: "Claim Failed",
-          output: result.error || "Failed to claim task",
-          metadata: { success: false, error: result.error },
-        }
-      }
-
       return {
-        title: "Task Claimed",
-        output: `Successfully claimed task "${args.taskId}"`,
+        title: result.success ? "Task Claimed" : "Claim Failed",
+        output: result.success
+          ? `Successfully claimed task "${args.taskId}"`
+          : result.error || "Failed to claim task",
         metadata: {
-          success: true,
+          success: result.success,
+          error: result.success ? undefined : result.error,
           taskId: args.taskId,
           status: result.task?.status,
         },
@@ -269,13 +256,22 @@ export const TeamAssignTaskTool = Tool.define(
       taskId: z.string().describe("ID of the task to assign"),
       agent: z.string().describe("Name of the agent to assign the task to"),
     }),
-    execute: async (args, ctx) => {
+    execute: async (args, ctx): Promise<{
+      title: string
+      output: string
+      metadata: {
+        success: boolean
+        taskId: string
+        assignedTo: string | undefined
+        description: string | undefined
+      }
+    }> => {
       const team = await TeamRegistry.getTeam(args.team)
       if (!team) {
         return {
           title: "Team Not Found",
           output: `Team "${args.team}" does not exist`,
-          metadata: { success: false },
+          metadata: { success: false, taskId: args.taskId, assignedTo: undefined, description: undefined },
         }
       }
 
@@ -283,7 +279,7 @@ export const TeamAssignTaskTool = Tool.define(
         return {
           title: "Permission Denied",
           output: "Only the team lead can assign tasks to specific agents",
-          metadata: { success: false },
+          metadata: { success: false, taskId: args.taskId, assignedTo: undefined, description: undefined },
         }
       }
 
@@ -294,7 +290,7 @@ export const TeamAssignTaskTool = Tool.define(
         return {
           title: "Task Not Found",
           output: `Task "${args.taskId}" not found`,
-          metadata: { success: false },
+          metadata: { success: false, taskId: args.taskId, assignedTo: undefined, description: undefined },
         }
       }
 
@@ -302,7 +298,7 @@ export const TeamAssignTaskTool = Tool.define(
         return {
           title: "Task Not Available",
           output: `Task "${args.taskId}" is not available (status: ${task.status})`,
-          metadata: { success: false },
+          metadata: { success: false, taskId: args.taskId, assignedTo: undefined, description: undefined },
         }
       }
 
@@ -312,7 +308,7 @@ export const TeamAssignTaskTool = Tool.define(
         return {
           title: "Invalid Agent",
           output: `"${args.agent}" is not a member of team "${args.team}"`,
-          metadata: { success: false },
+          metadata: { success: false, taskId: args.taskId, assignedTo: undefined, description: undefined },
         }
       }
 
@@ -323,7 +319,7 @@ export const TeamAssignTaskTool = Tool.define(
         return {
           title: "Assignment Failed",
           output: result.error || "Failed to assign task",
-          metadata: { success: false, error: result.error },
+          metadata: { success: false, taskId: args.taskId, assignedTo: undefined, description: undefined },
         }
       }
 
@@ -361,21 +357,16 @@ export const TeamCompleteTaskTool = Tool.define(
     execute: async (args, ctx) => {
       const result = await TeamTasks.completeTask(args.team, args.taskId, ctx.agent)
 
-      if (!result.success) {
-        return {
-          title: "Completion Failed",
-          output: result.error || "Failed to complete task",
-          metadata: { success: false, error: result.error },
-        }
-      }
-
       return {
-        title: "Task Completed",
-        output: `Task "${args.taskId}" marked as completed`,
+        title: result.success ? "Task Completed" : "Completion Failed",
+        output: result.success
+          ? `Task "${args.taskId}" marked as completed`
+          : result.error || "Failed to complete task",
         metadata: {
-          success: true,
+          success: result.success,
+          error: result.success ? undefined : result.error,
           taskId: args.taskId,
-          completedAt: result.task?.completedAt,
+          completedAt: result.success ? result.task?.completedAt : undefined,
         },
       }
     },
@@ -396,14 +387,6 @@ export const TeamListTasksTool = Tool.define(
     execute: async (args, ctx) => {
       const tasks = await TeamTasks.getTasks(args.team, { status: args.status })
 
-      if (tasks.length === 0) {
-        return {
-          title: "No Tasks",
-          output: "No tasks found.",
-          metadata: { count: 0 },
-        }
-      }
-
       const formatted = tasks
         .map((t) => {
           const deps = t.dependsOn?.length ? ` [deps: ${t.dependsOn.join(", ")}]` : ""
@@ -415,8 +398,8 @@ export const TeamListTasksTool = Tool.define(
         .join("\n\n")
 
       return {
-        title: `Tasks (${tasks.length})`,
-        output: formatted,
+        title: tasks.length === 0 ? "No Tasks" : `Tasks (${tasks.length})`,
+        output: tasks.length === 0 ? "No tasks found." : formatted,
         metadata: {
           count: tasks.length,
           tasks: tasks.map((t) => ({
@@ -438,13 +421,20 @@ export const TeamShutdownTool = Tool.define(
       team: z.string().describe("Team name"),
       agent: z.string().describe("Name of the agent to shutdown"),
     }),
-    execute: async (args, ctx) => {
+    execute: async (args, ctx): Promise<{
+      title: string
+      output: string
+      metadata: {
+        success: boolean
+        sessionId: string | undefined
+      }
+    }> => {
       const team = await TeamRegistry.getTeam(args.team)
       if (!team) {
         return {
           title: "Team Not Found",
           output: `Team "${args.team}" does not exist`,
-          metadata: { success: false },
+          metadata: { success: false, sessionId: undefined },
         }
       }
 
@@ -452,7 +442,7 @@ export const TeamShutdownTool = Tool.define(
         return {
           title: "Permission Denied",
           output: "Only the team lead can shutdown teammates",
-          metadata: { success: false },
+          metadata: { success: false, sessionId: undefined },
         }
       }
 
@@ -463,7 +453,7 @@ export const TeamShutdownTool = Tool.define(
         return {
           title: "No Active Session",
           output: `No active session found for agent "${args.agent}"`,
-          metadata: { success: false },
+          metadata: { success: false, sessionId: undefined },
         }
       }
 
@@ -497,13 +487,21 @@ export const TeamCleanupTool = Tool.define(
       team: z.string().describe("Team name"),
       maxAgeDays: z.number().int().positive().default(7).describe("Maximum age in days"),
     }),
-    execute: async (args, ctx) => {
+    execute: async (args, ctx): Promise<{
+      title: string
+      output: string
+      metadata: {
+        success: boolean
+        removedSessions: number | undefined
+        maxAgeDays: number | undefined
+      }
+    }> => {
       const team = await TeamRegistry.getTeam(args.team)
       if (!team) {
         return {
           title: "Team Not Found",
           output: `Team "${args.team}" does not exist`,
-          metadata: { success: false },
+          metadata: { success: false, removedSessions: undefined, maxAgeDays: undefined },
         }
       }
 
@@ -511,7 +509,7 @@ export const TeamCleanupTool = Tool.define(
         return {
           title: "Permission Denied",
           output: "Only the team lead can cleanup the team",
-          metadata: { success: false },
+          metadata: { success: false, removedSessions: undefined, maxAgeDays: undefined },
         }
       }
 

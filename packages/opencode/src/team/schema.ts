@@ -61,7 +61,7 @@ export namespace Team {
     timestamp: z.number(),
     read: z.boolean(),
     type: z.enum(["message", "broadcast", "system", "receipt"]).default("message"),
-    metadata: z.record(z.any()).optional(),
+    metadata: z.record(z.string(), z.any()).optional(),
   })
   export type Message = z.infer<typeof Message>
 
@@ -82,7 +82,7 @@ export namespace Team {
     dependsOn: z.array(z.string()).default([]),
     createdAt: z.number(),
     completedAt: z.number().optional(),
-    metadata: z.record(z.any()).optional(),
+    metadata: z.record(z.string(), z.any()).optional(),
   })
   export type Task = z.infer<typeof Task>
 }

@@ -27,13 +27,15 @@ export {
   TeamCleanupTool,
   TeamTools,
 } from "./tools"
-export {
+export type {
   RoleTemplate,
+  TeamPresetId,
+} from "./templates"
+export {
   RoleTemplates,
   getRoleTemplate,
   createMemberConfig,
   TeamPresets,
-  TeamPresetId,
   createTeamFromPreset,
   ExploreTemplate,
   PlannerTemplate,
@@ -46,8 +48,10 @@ export {
   BackendDevTemplate,
   TradingLogicDevTemplate,
 } from "./templates"
-export {
+export type {
   ModelConfig,
+} from "./model-router"
+export {
   parseModelString,
   getMemberModel,
   resolveMemberModel,
