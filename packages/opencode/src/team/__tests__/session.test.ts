@@ -496,7 +496,8 @@ describe("TeamSession", () => {
 
       // Verify final state is valid (one of the transitioned states)
       const updatedSession = await TeamSession.getSession(TEST_TEAM, session.sessionId)
-      expect(["busy", "shutdown_requested", "error"]).toContain(updatedSession?.status)
+      expect(updatedSession).not.toBeNull()
+      expect(["busy", "shutdown_requested", "error"]).toContain(updatedSession!.status)
     })
   })
 })
