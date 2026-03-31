@@ -6,6 +6,7 @@ import {
   rmdir as fsRmdir,
   readdir as fsReaddir,
   appendFile as fsAppendFile,
+  unlink as fsUnlink,
 } from "fs/promises"
 import { createWriteStream, existsSync, statSync } from "fs"
 import { lookup } from "mime-types"
@@ -224,5 +225,8 @@ export namespace Filesystem {
   }
   export async function readdir(p: string): Promise<string[]> {
     return fsReaddir(p)
+  }
+  export async function unlink(p: string): Promise<void> {
+    await fsUnlink(p)
   }
 }

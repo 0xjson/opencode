@@ -60,8 +60,8 @@ export namespace TeamInbox {
     type: Team.Message["type"] = "message",
     metadata?: Record<string, any>
   ): Promise<Team.Message> {
-    // Validate sender is team member
-    if (!(await isTeamMember(teamName, from))) {
+    // Validate sender is team member (except for system messages which come from "system")
+    if (from !== "system" && !(await isTeamMember(teamName, from))) {
       throw new Error(`Sender "${from}" is not a member of team "${teamName}"`)
     }
 

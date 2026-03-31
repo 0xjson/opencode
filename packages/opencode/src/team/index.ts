@@ -6,6 +6,8 @@ export { TeamRegistry } from "./registry"
 export { TeamInbox } from "./inbox"
 export { TeamTasks } from "./tasks"
 export { TeamSession } from "./session"
+export { TeamRecovery } from "./recovery"
+export { TeamIsolation } from "./isolation"
 export {
   TeamCreateTool,
   TeamMessageTool,
