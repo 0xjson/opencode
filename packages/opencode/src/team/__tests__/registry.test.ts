@@ -16,8 +16,12 @@ describe("TeamRegistry", () => {
       { name: "member2", agentType: "Explore", model: "haiku" },
     ],
   }
+  const originalEnv = process.env.OPENCODE_TEAMS_DIR
 
   beforeEach(async () => {
+    // Set test isolation environment variable
+    process.env.OPENCODE_TEAMS_DIR = TEST_TEAM_DIR
+
     // Clean up any existing test directory
     try {
       await Filesystem.rmdir(TEST_TEAM_DIR, { recursive: true })
@@ -25,13 +29,6 @@ describe("TeamRegistry", () => {
       // Directory might not exist
     }
     await Filesystem.mkdirp(TEST_TEAM_DIR)
-
-    // Monkey-patch the TEAM_DIR constant
-    const originalModule = await import("../registry")
-    Object.defineProperty(originalModule.TeamRegistry, "TEAM_DIR", {
-      value: TEST_TEAM_DIR,
-      writable: true,
-    })
   })
 
   afterEach(async () => {
@@ -40,6 +37,8 @@ describe("TeamRegistry", () => {
     } catch {
       // Directory might not exist
     }
+    // Restore original environment variable
+    process.env.OPENCODE_TEAMS_DIR = originalEnv
   })
 
   describe("createTeam", () => {

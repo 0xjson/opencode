@@ -1,4 +1,12 @@
-import { chmod, mkdir, readFile, writeFile, appendFile as fsAppendFile, readdir as fsReaddir, rmdir as fsRmdir } from "fs/promises"
+import {
+  chmod,
+  mkdir,
+  readFile,
+  writeFile,
+  rmdir as fsRmdir,
+  readdir as fsReaddir,
+  appendFile as fsAppendFile,
+} from "fs/promises"
 import { createWriteStream, existsSync, statSync } from "fs"
 import { lookup } from "mime-types"
 import { realpathSync } from "fs"
@@ -201,33 +209,20 @@ export namespace Filesystem {
     return result
   }
 
+  // Aliases for backward compatibility with team module
+  export async function rmdir(p: string, options?: { recursive?: boolean }): Promise<void> {
+    await fsRmdir(p, options as any)
+  }
   export async function mkdirp(p: string): Promise<void> {
     await mkdir(p, { recursive: true })
   }
-
+  export async function writeText(p: string, content: string): Promise<void> {
+    await write(p, content)
+  }
   export async function appendFile(p: string, content: string): Promise<void> {
-    await fsAppendFile(p, content, "utf-8")
+    await fsAppendFile(p, content)
   }
-
-  export async function readDir(p: string): Promise<string[]> {
-    return fsReaddir(p)
-  }
-
-  // Alias for compatibility
   export async function readdir(p: string): Promise<string[]> {
     return fsReaddir(p)
-  }
-
-  // Alias for write with text content
-  export async function writeText(p: string, content: string): Promise<void> {
-    return write(p, content)
-  }
-
-  export async function rmdir(p: string, options?: { recursive?: boolean }): Promise<void> {
-    if (options?.recursive) {
-      await fsRmdir(p, { recursive: true })
-    } else {
-      await fsRmdir(p)
-    }
   }
 }

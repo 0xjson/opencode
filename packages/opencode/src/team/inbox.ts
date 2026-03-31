@@ -12,11 +12,44 @@ export namespace TeamInbox {
 
   async function isTeamMember(teamName: string, agentName: string): Promise<boolean> {
     const team = await TeamRegistry.getTeam(teamName)
-    if (!team) return false
-    // Check exact match, or if agentName contains the member name (for user profiles)
-    return team.members.some((m) => m.name === agentName || agentName.includes(m.name)) ||
-           team.lead === agentName ||
-           agentName.includes(team.lead)
+    if (!team) {
+      log.debug(`Team "${teamName}" not found when checking membership for "${agentName}"`)
+      return false
+    }
+
+    // Normalize names for comparison (remove common suffixes like "(Ultraworker)")
+    const normalizeName = (name: string): string => {
+      return name.replace(/\s*\([^)]*\)\s*$/, "").trim()
+    }
+
+    const normalizedAgentName = normalizeName(agentName)
+
+    // Check against members
+    const isMember = team.members.some((m) => {
+      const normalizedMemberName = normalizeName(m.name)
+      return (
+        m.name === agentName ||                  // Exact match
+        normalizedMemberName === normalizedAgentName ||  // Normalized match
+        agentName.includes(m.name) ||            // Agent name contains member name
+        m.name.includes(agentName)               // Member name contains agent name
+      )
+    })
+
+    // Check against lead
+    const normalizedLeadName = normalizeName(team.lead)
+    const isLead = (
+      team.lead === agentName ||
+      normalizedLeadName === normalizedAgentName ||
+      agentName.includes(team.lead) ||
+      team.lead.includes(agentName)
+    )
+
+    const result = isMember || isLead
+    if (!result) {
+      log.debug(`Membership check failed: "${agentName}" (normalized: "${normalizedAgentName}") not found in team "${teamName}". Members: [${team.members.map(m => `"${m.name}"`).join(", ")}], Lead: "${team.lead}"`)
+    }
+
+    return result
   }
 
   export async function sendMessage(

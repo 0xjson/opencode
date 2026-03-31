@@ -15,14 +15,6 @@ import { win32DisableProcessedInput, win32InstallCtrlCGuard } from "./win32"
 import { TuiConfig } from "@/config/tui"
 import { Instance } from "@/project/instance"
 
-function getLaunchDirectory(): string {
-  // If OPENCODE_LAUNCH_DIR is set (e.g., from opencode-team wrapper), use it
-  if (process.env.OPENCODE_LAUNCH_DIR) {
-    return process.env.OPENCODE_LAUNCH_DIR
-  }
-  return process.cwd()
-}
-
 declare global {
   const OPENCODE_WORKER_PATH: string
 }
@@ -123,10 +115,11 @@ export const TuiThreadCommand = cmd({
 
       // Resolve relative --project paths from PWD, then use the real cwd after
       // chdir so the thread and worker share the same directory key.
-      const root = Filesystem.resolve(process.env.PWD ?? getLaunchDirectory())
+      // OPENCODE_ORIGINAL_CWD is set by the launcher script when running from source
+      const root = Filesystem.resolve(process.env.OPENCODE_ORIGINAL_CWD ?? process.env.PWD ?? process.cwd())
       const next = args.project
         ? Filesystem.resolve(path.isAbsolute(args.project) ? args.project : path.join(root, args.project))
-        : Filesystem.resolve(getLaunchDirectory())
+        : root
       const file = await target()
       try {
         process.chdir(next)
@@ -146,6 +139,9 @@ export const TuiThreadCommand = cmd({
       }
 
       const client = Rpc.client<typeof rpc>(worker)
+
+      // Initialize worker with the correct directory (worker's process.cwd() may differ from parent)
+      await client.call("init", { directory: cwd })
       const error = (e: unknown) => {
         Log.Default.error(e)
       }

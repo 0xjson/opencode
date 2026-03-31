@@ -529,9 +529,158 @@ export const TeamCleanupTool = Tool.define(
   })
 )
 
+export const TeamListTool = Tool.define(
+  "team_list",
+  async () => ({
+    description: "List all available teams",
+    parameters: z.object({}),
+    execute: async (args, ctx): Promise<{
+      title: string
+      output: string
+      metadata: {
+        teams: string[]
+        count: number
+      }
+    }> => {
+      const teams = await TeamRegistry.listTeams()
+
+      const formatted = teams.length === 0
+        ? "No teams found."
+        : teams.map((t) => `  - ${t}`).join("\n")
+
+      return {
+        title: teams.length === 0 ? "No Teams" : `${teams.length} Team(s)`,
+        output: formatted,
+        metadata: {
+          teams,
+          count: teams.length,
+        },
+      }
+    },
+  })
+)
+
+export const TeamInfoTool = Tool.define(
+  "team_info",
+  async () => ({
+    description: "Get information about a team",
+    parameters: z.object({
+      team: z.string().describe("Team name"),
+    }),
+    execute: async (args, ctx): Promise<{
+      title: string
+      output: string
+      metadata: {
+        team: string
+        lead: string
+        members: string[]
+        description?: string
+        createdAt?: number
+      }
+    }> => {
+      const team = await TeamRegistry.getTeam(args.team)
+      if (!team) {
+        return {
+          title: "Team Not Found",
+          output: `Team "${args.team}" does not exist`,
+          metadata: { team: args.team, lead: "", members: [] },
+        }
+      }
+
+      const memberList = team.members.map((m) => `  - ${m.name} (${m.agentType})`).join("\n")
+      const output = `Team: ${team.team}\nLead: ${team.lead}\nMembers:\n${memberList}`
+
+      return {
+        title: `Team: ${team.team}`,
+        output,
+        metadata: {
+          team: team.team,
+          lead: team.lead,
+          members: team.members.map((m) => m.name),
+          description: team.description,
+          createdAt: team.createdAt,
+        },
+      }
+    },
+  })
+)
+
+export const TeamAddMemberTool = Tool.define(
+  "team_add_member",
+  async () => ({
+    description: "Add a member to a team (lead only)",
+    parameters: z.object({
+      team: z.string().describe("Team name"),
+      name: z.string().describe("Name of the new member"),
+      agentType: z.enum(["general-purpose", "Explore", "Plan"]).default("general-purpose").describe("Type of agent"),
+      model: z.string().optional().describe("Model to use (e.g., 'claude', 'codex', 'gemini')"),
+    }),
+    execute: async (args, ctx): Promise<{
+      title: string
+      output: string
+      metadata: {
+        success: boolean
+        team: string
+        member: string
+      }
+    }> => {
+      const team = await TeamRegistry.getTeam(args.team)
+      if (!team) {
+        return {
+          title: "Team Not Found",
+          output: `Team "${args.team}" does not exist`,
+          metadata: { success: false, team: args.team, member: args.name },
+        }
+      }
+
+      if (team.lead !== ctx.agent) {
+        return {
+          title: "Permission Denied",
+          output: "Only the team lead can add members",
+          metadata: { success: false, team: args.team, member: args.name },
+        }
+      }
+
+      // Check if member already exists
+      if (team.members.some((m) => m.name === args.name)) {
+        return {
+          title: "Member Already Exists",
+          output: `Member "${args.name}" is already in team "${args.team}"`,
+          metadata: { success: false, team: args.team, member: args.name },
+        }
+      }
+
+      const newMember: Team.MemberConfig = {
+        name: args.name,
+        agentType: args.agentType,
+        model: args.model,
+      }
+
+      team.members.push(newMember)
+      await TeamRegistry.updateTeam(args.team, { members: team.members })
+
+      // Notify the new member
+      await TeamInbox.sendMessage(
+        args.team,
+        args.name,
+        ctx.agent,
+        `👋 Welcome to team "${args.team}"! You've been added as a member.`,
+        "system"
+      )
+
+      return {
+        title: "Member Added",
+        output: `Added "${args.name}" to team "${args.team}"`,
+        metadata: { success: true, team: args.team, member: args.name },
+      }
+    },
+  })
+)
+
 // Export all team tools
 export const TeamTools = [
   TeamCreateTool,
+  TeamListTool,
   TeamMessageTool,
   TeamBroadcastTool,
   TeamCheckInboxTool,
@@ -543,4 +692,6 @@ export const TeamTools = [
   TeamListTasksTool,
   TeamShutdownTool,
   TeamCleanupTool,
+  TeamInfoTool,
+  TeamAddMemberTool,
 ]

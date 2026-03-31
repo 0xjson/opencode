@@ -12,14 +12,6 @@ import type { BunWebSocketData } from "hono/bun"
 import { Flag } from "@/flag/flag"
 import { setTimeout as sleep } from "node:timers/promises"
 
-function getLaunchDirectory(): string {
-  // If OPENCODE_LAUNCH_DIR is set (e.g., from opencode-team wrapper), use it
-  if (process.env.OPENCODE_LAUNCH_DIR) {
-    return process.env.OPENCODE_LAUNCH_DIR
-  }
-  return process.cwd()
-}
-
 await Log.init({
   print: process.argv.includes("--print-logs"),
   dev: Installation.isLocal(),
@@ -58,10 +50,12 @@ const startEventStream = (input: { directory: string; workspaceID?: string }) =>
   eventStream.abort = abort
   const signal = abort.signal
 
-  const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const request = new Request(input, init)
+  const fetchFn = (async (reqInfo: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(reqInfo, init)
     const auth = getAuthorizationHeader()
     if (auth) request.headers.set("Authorization", auth)
+    // Pass the directory header so the server knows the correct working directory
+    request.headers.set("x-opencode-directory", input.directory)
     return Server.Default().fetch(request)
   }) as typeof globalThis.fetch
 
@@ -104,15 +98,26 @@ const startEventStream = (input: { directory: string; workspaceID?: string }) =>
   })
 }
 
-startEventStream({ directory: getLaunchDirectory() })
+// Note: process.cwd() in the Worker may not match the parent thread's cwd.
+// The actual directory is set by the thread calling init() before using the worker.
+let currentDirectory = process.cwd()
+let isInitialized = false
 
 export const rpc = {
+  async init(input: { directory: string }) {
+    currentDirectory = input.directory
+    isInitialized = true
+    // Start event stream with the correct directory (don't start at module load time)
+    startEventStream({ directory: currentDirectory })
+  },
   async fetch(input: { url: string; method: string; headers: Record<string, string>; body?: string }) {
     const headers = { ...input.headers }
     const auth = getAuthorizationHeader()
     if (auth && !headers["authorization"] && !headers["Authorization"]) {
       headers["Authorization"] = auth
     }
+    // Add directory header so server knows the correct working directory
+    headers["x-opencode-directory"] = currentDirectory
     const request = new Request(input.url, {
       method: input.method,
       headers,
@@ -145,7 +150,7 @@ export const rpc = {
     await Instance.disposeAll()
   },
   async setWorkspace(input: { workspaceID?: string }) {
-    startEventStream({ directory: getLaunchDirectory(), workspaceID: input.workspaceID })
+    startEventStream({ directory: currentDirectory, workspaceID: input.workspaceID })
   },
   async shutdown() {
     Log.Default.info("worker shutting down")

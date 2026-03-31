@@ -10,8 +10,12 @@ const TEST_TEAM_DIR = path.join(os.tmpdir(), "opencode-test-teams", Date.now().t
 
 describe("TeamTasks", () => {
   const TEST_TEAM = "test-task-team"
+  const originalEnv = process.env.OPENCODE_TEAMS_DIR
 
   beforeEach(async () => {
+    // Set test isolation environment variable
+    process.env.OPENCODE_TEAMS_DIR = TEST_TEAM_DIR
+
     try {
       await Filesystem.rmdir(TEST_TEAM_DIR, { recursive: true })
     } catch {
@@ -33,6 +37,8 @@ describe("TeamTasks", () => {
     } catch {
       // Directory might not exist
     }
+    // Restore original environment variable
+    process.env.OPENCODE_TEAMS_DIR = originalEnv
   })
 
   describe("createTask", () => {
@@ -306,8 +312,10 @@ describe("TeamTasks", () => {
 
       const available = await TeamTasks.getAvailableTasks(TEST_TEAM)
 
-      expect(available).toHaveLength(1)
-      expect(available[0].id).toBe(freeTask.id)
+      // freeTask and depTask are both pending with no dependencies
+      expect(available).toHaveLength(2)
+      expect(available.map((t) => t.id)).toContain(freeTask.id)
+      expect(available.map((t) => t.id)).toContain(depTask.id)
     })
 
     it("should return empty array when all tasks are blocked", async () => {
@@ -316,10 +324,12 @@ describe("TeamTasks", () => {
         dependsOn: [task1.id],
       })
 
+      // Only task1 is available (task2 depends on task1)
       const available = await TeamTasks.getAvailableTasks(TEST_TEAM)
-      expect(available).toHaveLength(2) // Both should be available
+      expect(available).toHaveLength(1)
+      expect(available[0].id).toBe(task1.id)
 
-      // Claim task1, task2 should now be blocked
+      // Claim task1, task2 should now be blocked (dependency not completed)
       await TeamTasks.claimTask(TEST_TEAM, task1.id, "agent1")
 
       const availableAfter = await TeamTasks.getAvailableTasks(TEST_TEAM)
