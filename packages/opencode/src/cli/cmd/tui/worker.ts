@@ -50,8 +50,8 @@ const startEventStream = (input: { directory: string; workspaceID?: string }) =>
   eventStream.abort = abort
   const signal = abort.signal
 
-  const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const request = new Request(input, init)
+  const fetchFn = (async (reqInfo: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(reqInfo, init)
     const auth = getAuthorizationHeader()
     if (auth) request.headers.set("Authorization", auth)
     // Pass the directory header so the server knows the correct working directory
