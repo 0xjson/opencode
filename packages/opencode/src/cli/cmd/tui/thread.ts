@@ -115,10 +115,11 @@ export const TuiThreadCommand = cmd({
 
       // Resolve relative --project paths from PWD, then use the real cwd after
       // chdir so the thread and worker share the same directory key.
-      const root = Filesystem.resolve(process.env.PWD ?? process.cwd())
+      // OPENCODE_ORIGINAL_CWD is set by the launcher script when running from source
+      const root = Filesystem.resolve(process.env.OPENCODE_ORIGINAL_CWD ?? process.env.PWD ?? process.cwd())
       const next = args.project
         ? Filesystem.resolve(path.isAbsolute(args.project) ? args.project : path.join(root, args.project))
-        : Filesystem.resolve(process.cwd())
+        : root
       const file = await target()
       try {
         process.chdir(next)
@@ -138,6 +139,9 @@ export const TuiThreadCommand = cmd({
       }
 
       const client = Rpc.client<typeof rpc>(worker)
+
+      // Initialize worker with the correct directory (worker's process.cwd() may differ from parent)
+      await client.call("init", { directory: cwd })
       const error = (e: unknown) => {
         Log.Default.error(e)
       }
