@@ -253,7 +253,7 @@ export function PermissionPrompt(props: { request: PermissionRequest }) {
               const pattern = typeof data.pattern === "string" ? data.pattern : ""
               return {
                 icon: "✱",
-                title: `Grep "${pattern}"`,
+                title: `Ripgrep "${pattern}"`,
                 body: (
                   <Show when={pattern}>
                     <box paddingLeft={1}>

@@ -90,7 +90,7 @@ function glob(info: ToolProps<typeof GlobTool>) {
 
 function grep(info: ToolProps<typeof GrepTool>) {
   const root = info.input.path ?? ""
-  const title = `Grep "${info.input.pattern}"`
+  const title = `Ripgrep "${info.input.pattern}"`
   const suffix = root ? `in ${normalizePath(root)}` : ""
   const num = info.metadata.matches
   const description =
