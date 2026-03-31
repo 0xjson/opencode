@@ -11,8 +11,6 @@ import {
   TeamInbox,
   TeamTasks,
   TeamSession,
-  TeamRecovery,
-  TeamIsolation,
 } from "../../"
 
 // ============================================================================
@@ -175,71 +173,73 @@ async function example4_SessionManagement() {
 // Example 5: Recovery from Crash
 // ============================================================================
 
-async function example5_CrashRecovery() {
-  console.log("\n=== Example 5: Crash Recovery ===")
-
-  // Simulate a crash scenario
-  // (In real usage, this would happen on server startup)
-
-  const results = await TeamRecovery.scanAndRecover()
-  console.log(`Recovery scan complete. Recovered ${results.length} teams.`)
-
-  results.forEach((result) => {
-    console.log(`  Team: ${result.teamName}`)
-    console.log(`    Recovered sessions: ${result.recoveredSessions.length}`)
-    console.log(`    Lead notified: ${result.messageInjected}`)
-  })
-
-  // Check recovery status
-  const status = await TeamRecovery.getRecoveryStatus("web-app-team")
-  console.log("\nTeam health status:")
-  console.log(`  Healthy: ${status.healthy}`)
-  console.log(`  Ready: ${status.readyCount}`)
-  console.log(`  Busy: ${status.busyCount}`)
-  console.log(`  Error: ${status.errorCount}`)
-}
+// NOTE: TeamRecovery is not yet implemented
+// async function example5_CrashRecovery() {
+//   console.log("\n=== Example 5: Crash Recovery ===")
+//
+//   // Simulate a crash scenario
+//   // (In real usage, this would happen on server startup)
+//
+//   const results = await TeamRecovery.scanAndRecover()
+//   console.log(`Recovery scan complete. Recovered ${results.length} teams.`)
+//
+//   results.forEach((result) => {
+//     console.log(`  Team: ${result.teamName}`)
+//     console.log(`    Recovered sessions: ${result.recoveredSessions.length}`)
+//     console.log(`    Lead notified: ${result.messageInjected}`)
+//   })
+//
+//   // Check recovery status
+//   const status = await TeamRecovery.getRecoveryStatus("web-app-team")
+//   console.log("\nTeam health status:")
+//   console.log(`  Healthy: ${status.healthy}`)
+//   console.log(`  Ready: ${status.readyCount}`)
+//   console.log(`  Busy: ${status.busyCount}`)
+//   console.log(`  Error: ${status.errorCount}`)
+// }
 
 // ============================================================================
 // Example 6: Sub-Agent Isolation
 // ============================================================================
 
-async function example6_Isolation() {
-  console.log("\n=== Example 6: Sub-Agent Isolation ===")
-
-  // Lead can use all tools
-  const leadConfig = TeamIsolation.createLeadIsolation()
-  console.log("Lead tool visibility:")
-  console.log(`  team_message: ${TeamIsolation.getToolVisibility("team_message", leadConfig)}`)
-  console.log(`  read: ${TeamIsolation.getToolVisibility("read", leadConfig)}`)
-
-  // Sub-agent has restricted access
-  const subAgentConfig = TeamIsolation.createSubAgentIsolation("backend-dev")
-  console.log("\nSub-agent tool visibility:")
-  console.log(`  team_message: ${TeamIsolation.getToolVisibility("team_message", subAgentConfig)}`)
-  console.log(`  read: ${TeamIsolation.getToolVisibility("read", subAgentConfig)}`)
-  console.log(`  bash: ${TeamIsolation.getToolVisibility("bash", subAgentConfig)}`)
-
-  // Validate tool calls
-  const validation1 = TeamIsolation.validateToolCall("team_message", subAgentConfig)
-  console.log(`\nValidation for team_message: ${validation1.allowed ? "allowed" : "denied"}`)
-  if (!validation1.allowed) console.log(`  Reason: ${validation1.reason}`)
-
-  const validation2 = TeamIsolation.validateToolCall("read", subAgentConfig)
-  console.log(`Validation for read: ${validation2.allowed ? "allowed" : "denied"}`)
-
-  // Rate limiting
-  const rateCheck1 = TeamIsolation.checkRateLimit("backend-dev")
-  console.log(`\nRate limit check 1: ${rateCheck1.allowed ? "allowed" : "denied"}`)
-
-  // Simulate burst of messages
-  for (let i = 0; i < 12; i++) {
-    TeamIsolation.checkRateLimit("backend-dev")
-  }
-
-  const rateCheck2 = TeamIsolation.checkRateLimit("backend-dev")
-  console.log(`Rate limit check after burst: ${rateCheck2.allowed ? "allowed" : "denied"}`)
-  if (!rateCheck2.allowed) console.log(`  Retry after: ${rateCheck2.retryAfterMs}ms`)
-}
+// NOTE: TeamIsolation is not yet implemented
+// async function example6_Isolation() {
+//   console.log("\n=== Example 6: Sub-Agent Isolation ===")
+//
+//   // Lead can use all tools
+//   const leadConfig = TeamIsolation.createLeadIsolation()
+//   console.log("Lead tool visibility:")
+//   console.log(`  team_message: ${TeamIsolation.getToolVisibility("team_message", leadConfig)}`)
+//   console.log(`  read: ${TeamIsolation.getToolVisibility("read", leadConfig)}`)
+//
+//   // Sub-agent has restricted access
+//   const subAgentConfig = TeamIsolation.createSubAgentIsolation("backend-dev")
+//   console.log("\nSub-agent tool visibility:")
+//   console.log(`  team_message: ${TeamIsolation.getToolVisibility("team_message", subAgentConfig)}`)
+//   console.log(`  read: ${TeamIsolation.getToolVisibility("read", subAgentConfig)}`)
+//   console.log(`  bash: ${TeamIsolation.getToolVisibility("bash", subAgentConfig)}`)
+//
+//   // Validate tool calls
+//   const validation1 = TeamIsolation.validateToolCall("team_message", subAgentConfig)
+//   console.log(`\nValidation for team_message: ${validation1.allowed ? "allowed" : "denied"}`)
+//   if (!validation1.allowed) console.log(`  Reason: ${validation1.reason}`)
+//
+//   const validation2 = TeamIsolation.validateToolCall("read", subAgentConfig)
+//   console.log(`Validation for read: ${validation2.allowed ? "allowed" : "denied"}`)
+//
+//   // Rate limiting
+//   const rateCheck1 = TeamIsolation.checkRateLimit("backend-dev")
+//   console.log(`\nRate limit check 1: ${rateCheck1.allowed ? "allowed" : "denied"}`)
+//
+//   // Simulate burst of messages
+//   for (let i = 0; i < 12; i++) {
+//     TeamIsolation.checkRateLimit("backend-dev")
+//   }
+//
+//   const rateCheck2 = TeamIsolation.checkRateLimit("backend-dev")
+//   console.log(`Rate limit check after burst: ${rateCheck2.allowed ? "allowed" : "denied"}`)
+//   if (!rateCheck2.allowed) console.log(`  Retry after: ${rateCheck2.retryAfterMs}ms`)
+// }
 
 // ============================================================================
 // Example 7: Complete Workflow
@@ -325,8 +325,8 @@ async function main() {
     await example2_TaskWorkflow()
     await example3_Messaging()
     await example4_SessionManagement()
-    await example5_CrashRecovery()
-    await example6_Isolation()
+    // await example5_CrashRecovery() // NOTE: TeamRecovery not yet implemented
+    // await example6_Isolation() // NOTE: TeamIsolation not yet implemented
     await example7_CompleteWorkflow()
 
     console.log("\n✅ All examples completed successfully!")
@@ -343,7 +343,7 @@ export {
   example2_TaskWorkflow,
   example3_Messaging,
   example4_SessionManagement,
-  example5_CrashRecovery,
-  example6_Isolation,
+  // example5_CrashRecovery, // NOTE: TeamRecovery not yet implemented
+  // example6_Isolation, // NOTE: TeamIsolation not yet implemented
   example7_CompleteWorkflow,
 }
