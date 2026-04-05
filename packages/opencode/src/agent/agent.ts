@@ -134,7 +134,7 @@ export namespace Agent {
           defaults,
           PermissionNext.fromConfig({
             "*": "deny",
-            grep: "allow",
+            rg: "allow",
             glob: "allow",
             list: "allow",
             bash: "allow",

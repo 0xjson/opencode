@@ -12,7 +12,7 @@ import { assertExternalDirectory } from "./external-directory"
 
 const MAX_LINE_LENGTH = 2000
 
-export const GrepTool = Tool.define("grep", {
+export const GrepTool = Tool.define("rg", {
   description: DESCRIPTION,
   parameters: z.object({
     pattern: z.string().describe("The regex pattern to search for in file contents"),
@@ -25,7 +25,7 @@ export const GrepTool = Tool.define("grep", {
     }
 
     await ctx.ask({
-      permission: "grep",
+      permission: "rg",
       patterns: [params.pattern],
       always: ["*"],
       metadata: {

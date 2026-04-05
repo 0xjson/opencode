@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeEach } from "bun:test"
-import type {
-  IsolationConfig,
-  ValidationResult,
-  RateLimitResult,
-} from "../isolation"
+import type { IsolationConfig, ValidationResult, RateLimitResult } from "../isolation"
 import {
   createLeadIsolation,
   createSubAgentIsolation,
@@ -46,7 +42,7 @@ describe("TeamIsolation", () => {
       expect(config.visibleTools.has("read")).toBe(true)
       expect(config.visibleTools.has("write")).toBe(true)
       expect(config.visibleTools.has("edit")).toBe(true)
-      expect(config.visibleTools.has("grep")).toBe(true)
+      expect(config.visibleTools.has("rg")).toBe(true)
       expect(config.visibleTools.has("glob")).toBe(true)
     })
   })
@@ -94,7 +90,7 @@ describe("TeamIsolation", () => {
       expect(config.visibleTools.has("bash")).toBe(false)
       expect(config.visibleTools.has("write")).toBe(false)
       expect(config.visibleTools.has("edit")).toBe(false)
-      expect(config.visibleTools.has("grep")).toBe(false)
+      expect(config.visibleTools.has("rg")).toBe(false)
       expect(config.visibleTools.has("glob")).toBe(false)
     })
   })

@@ -44,13 +44,7 @@ interface RateLimitEntry {
 }
 
 // Tool categories
-const TEAM_TOOLS_LEAD_ONLY = [
-  "team_create",
-  "team_shutdown",
-  "team_cleanup",
-  "team_assign_task",
-  "team_add_member",
-]
+const TEAM_TOOLS_LEAD_ONLY = ["team_create", "team_shutdown", "team_cleanup", "team_assign_task", "team_add_member"]
 
 const TEAM_TOOLS_SHARED = [
   "team_message",
@@ -65,10 +59,7 @@ const TEAM_TOOLS_SHARED = [
   "team_info",
 ]
 
-const SUB_AGENT_ALLOWED_TOOLS = new Set([
-  ...TEAM_TOOLS_SHARED,
-  "read",
-])
+const SUB_AGENT_ALLOWED_TOOLS = new Set([...TEAM_TOOLS_SHARED, "read"])
 
 /**
  * Create isolation config for a team lead (full access)
@@ -81,7 +72,7 @@ function createLeadIsolationImpl(agentName: string): IsolationConfig {
     "read",
     "write",
     "edit",
-    "grep",
+    "rg",
     "glob",
   ])
 

@@ -667,7 +667,7 @@ export namespace Config {
           read: PermissionRule.optional(),
           edit: PermissionRule.optional(),
           glob: PermissionRule.optional(),
-          grep: PermissionRule.optional(),
+          rg: PermissionRule.optional(),
           list: PermissionRule.optional(),
           bash: PermissionRule.optional(),
           task: PermissionRule.optional(),

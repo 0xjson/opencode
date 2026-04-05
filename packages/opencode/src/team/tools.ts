@@ -5,6 +5,11 @@ import { TeamRegistry } from "./registry"
 import { TeamInbox } from "./inbox"
 import { TeamTasks } from "./tasks"
 import { TeamSession } from "./session"
+import { TeamScheduler } from "./scheduler"
+import { TeamBidding } from "./bidding"
+import { EmbeddingService } from "./embedding"
+import { ScoringEngine } from "./scorer"
+import { CircuitBreaker } from "./circuitBreaker"
 import { Log } from "../util/log"
 
 const log = Log.create({ service: "team.tools" })
@@ -677,6 +682,891 @@ export const TeamAddMemberTool = Tool.define(
   })
 )
 
+// ============================================================================
+// ORCHESTRATION ENGINE TOOLS - Phase 1
+// ============================================================================
+
+export const TeamAutoClaimTool = Tool.define(
+  "team_auto_claim",
+  async () => ({
+    description: "Automatically find and claim the best matching task based on agent capabilities",
+    parameters: z.object({
+      team: z.string().describe("Team name"),
+      minScore: z.number().min(0).max(1).optional().describe("Minimum score threshold (0-1)"),
+    }),
+    execute: async (args, ctx): Promise<{
+      title: string
+      output: string
+      metadata: {
+        success: boolean
+        error?: string
+        taskId?: string
+        score?: number
+        components?: any
+        taskType?: string
+        difficulty?: number
+      }
+    }> => {
+      const result = await TeamTasks.autoClaimTask(args.team, ctx.agent, {
+        minScore: args.minScore ?? 0.3,
+      })
+
+      if (!result.success) {
+        return {
+          title: "Auto-Claim Failed",
+          output: result.error || "No suitable task found",
+          metadata: { success: false, error: result.error },
+        }
+      }
+
+      const components = result.components
+      const componentBreakdown = components
+        ? `
+Score Components:
+  - Semantic Similarity: ${(components.semanticSimilarity * 100).toFixed(1)}%
+  - Availability: ${(components.availability * 100).toFixed(1)}%
+  - Dependency Ready: ${(components.dependencyReady * 100).toFixed(1)}%
+  - Reliability: ${(components.reliability * 100).toFixed(1)}%
+  - Latency Efficiency: ${(components.latencyEfficiency * 100).toFixed(1)}%
+  - Exploration Bonus: ${(components.explorationBonus * 100).toFixed(1)}%`
+        : ""
+
+      return {
+        title: "Task Auto-Claimed",
+        output: `Successfully claimed task "${result.task?.id}" with score ${(result.score! * 100).toFixed(1)}%
+
+Task: ${result.task?.description.slice(0, 100)}${result.task!.description.length > 100 ? "..." : ""}
+Type: ${result.task?.taskType || "general"}
+Difficulty: ${result.task?.estimatedDifficulty || "unknown"}/10${componentBreakdown}`,
+        metadata: {
+          success: true,
+          taskId: result.task?.id,
+          score: result.score,
+          components: result.components,
+          taskType: result.task?.taskType,
+          difficulty: result.task?.estimatedDifficulty,
+        },
+      }
+    },
+  })
+)
+
+export const TeamSelectBestAgentTool = Tool.define(
+  "team_select_best_agent",
+  async () => ({
+    description: "Find the best agent for a specific task (lead only)",
+    parameters: z.object({
+      team: z.string().describe("Team name"),
+      taskId: z.string().describe("ID of the task to find best agent for"),
+    }),
+    execute: async (args, ctx): Promise<{
+      title: string
+      output: string
+      metadata: {
+        success: boolean
+        error?: string
+        bestAgent?: string
+        score?: number
+        allScores?: any[]
+      }
+    }> => {
+      // Verify caller is lead
+      const team = await TeamRegistry.getTeam(args.team)
+      if (!team) {
+        return {
+          title: "Team Not Found",
+          output: `Team "${args.team}" does not exist`,
+          metadata: { success: false },
+        }
+      }
+
+      if (team.lead !== ctx.agent) {
+        return {
+          title: "Permission Denied",
+          output: "Only the team lead can use agent selection",
+          metadata: { success: false },
+        }
+      }
+
+      const result = await TeamTasks.selectBestAgent(args.team, args.taskId)
+
+      if (result.error) {
+        return {
+          title: "Selection Failed",
+          output: result.error,
+          metadata: { success: false, error: result.error },
+        }
+      }
+
+      const scoresText = result.allScores
+        .slice(0, 5)
+        .map((s, i) => {
+          const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : "  "
+          return `${medal} ${s.agentName}: ${(s.score * 100).toFixed(1)}%`
+        })
+        .join("\n")
+
+      return {
+        title: result.bestAgent ? `Best Agent: ${result.bestAgent}` : "No Suitable Agent",
+        output: result.bestAgent
+          ? `Best agent for task "${args.taskId}" is "${result.bestAgent}" with score ${(result.score * 100).toFixed(1)}%\n\nTop Matches:\n${scoresText}`
+          : "No agent meets the minimum score threshold for this task",
+        metadata: {
+          success: true,
+          bestAgent: result.bestAgent || undefined,
+          score: result.score,
+          allScores: result.allScores,
+        },
+      }
+    },
+  })
+)
+
+export const TeamGetAgentStatsTool = Tool.define(
+  "team_get_agent_stats",
+  async () => ({
+    description: "Get performance statistics for team agents",
+    parameters: z.object({
+      team: z.string().describe("Team name"),
+      agent: z.string().optional().describe("Specific agent name (omit for all agents)"),
+    }),
+    execute: async (args, ctx): Promise<{
+      title: string
+      output: string
+      metadata: {
+        success: boolean
+        error?: string
+      }
+    }> => {
+      const team = await TeamRegistry.getTeam(args.team)
+      if (!team) {
+        return {
+          title: "Team Not Found",
+          output: `Team "${args.team}" does not exist`,
+          metadata: { success: false, error: "Team not found" },
+        }
+      }
+
+      // Allow members to see their own stats, lead to see all
+      const isLead = team.lead === ctx.agent
+      const targetAgent = args.agent || ctx.agent
+
+      if (!isLead && targetAgent !== ctx.agent) {
+        return {
+          title: "Permission Denied",
+          output: "You can only view your own stats",
+          metadata: { success: false, error: "Permission denied" },
+        }
+      }
+
+      const stats = await TeamRegistry.loadAgentStats(args.team)
+
+      if (targetAgent) {
+        const agentStats = stats.find((s) => s.agentName === targetAgent)
+        if (!agentStats) {
+          return {
+            title: "No Stats Found",
+            output: `No statistics found for agent "${targetAgent}"`,
+            metadata: { success: false, error: "No stats found" },
+          }
+        }
+
+        const successRate = agentStats.totalTasks > 0
+          ? ((agentStats.successfulTasks / agentStats.totalTasks) * 100).toFixed(1)
+          : "N/A"
+
+        const taskTypeBreakdown = Object.entries(agentStats.taskTypeStats)
+          .map(([type, s]) => {
+            const rate = s.attempts > 0 ? ((s.successes / s.attempts) * 100).toFixed(0) : "0"
+            const avgTime = s.avgCompletionTime > 0
+              ? `${(s.avgCompletionTime / 60000).toFixed(1)}m`
+              : "N/A"
+            return `  ${type}: ${s.attempts} tasks, ${rate}% success, avg ${avgTime}`
+          })
+          .join("\n")
+
+        return {
+          title: `Stats: ${targetAgent}`,
+          output: `Performance Statistics for "${targetAgent}":
+
+Overall:
+  Total Tasks: ${agentStats.totalTasks}
+  Successful: ${agentStats.successfulTasks}
+  Failed: ${agentStats.failedTasks}
+  Success Rate: ${successRate}%
+  Reliability Score: ${((agentStats.reliabilityScore || 0.5) * 100).toFixed(1)}%
+  Active Tasks: ${agentStats.activeTasks || 0}
+
+By Task Type:
+${taskTypeBreakdown || "  No task type data yet"}`,
+          metadata: { success: true },
+        }
+      }
+
+      // Return summary for all agents
+      const summary = stats.map((s) => {
+        const rate = s.totalTasks > 0 ? ((s.successfulTasks / s.totalTasks) * 100).toFixed(0) : "0"
+        return `  ${s.agentName}: ${s.totalTasks} tasks, ${rate}% success, ${s.activeTasks || 0} active`
+      }).join("\n")
+
+      return {
+        title: `Team Stats (${stats.length} agents)`,
+        output: `Agent Performance Summary:\n${summary || "  No statistics available"}`,
+        metadata: { success: true },
+      }
+    },
+  })
+)
+
+export const TeamGetReadyTasksTool = Tool.define(
+  "team_get_ready_tasks",
+  async () => ({
+    description: "Get tasks that are ready for execution (dependencies satisfied)",
+    parameters: z.object({
+      team: z.string().describe("Team name"),
+    }),
+    execute: async (args, ctx): Promise<{
+      title: string
+      output: string
+      metadata: {
+        count: number
+        tasks: any[]
+      }
+    }> => {
+      const readyTasks = await TeamTasks.getDependencyReadyTasks(args.team)
+      const rankedTasks = await TeamTasks.rankPendingTasks(args.team)
+
+      const formatted = rankedTasks
+        .filter((r) => r.ready)
+        .slice(0, 20)
+        .map((r) => {
+          const t = r.task
+          const type = t.taskType ? `[${t.taskType}] ` : ""
+          const priority = t.priority !== "normal" ? `(${t.priority}) ` : ""
+          return `${t.id}: ${priority}${type}${t.description.slice(0, 60)}${t.description.length > 60 ? "..." : ""}`
+        })
+        .join("\n")
+
+      return {
+        title: `${readyTasks.length} Ready Tasks`,
+        output: readyTasks.length === 0
+          ? "No tasks are ready for execution (dependencies not satisfied or all tasks claimed)"
+          : `Tasks ready for execution:\n${formatted}`,
+        metadata: {
+          count: readyTasks.length,
+          tasks: readyTasks.map((t) => ({
+            id: t.id,
+            description: t.description.slice(0, 100),
+            taskType: t.taskType,
+            priority: t.priority,
+            difficulty: t.estimatedDifficulty,
+          })),
+        },
+      }
+    },
+  })
+)
+
+// ============================================================================
+// SCHEDULER TOOLS - Phase 2
+// ============================================================================
+
+export const TeamStartSchedulerTool = Tool.define(
+  "team_start_scheduler",
+  async () => ({
+    description: "Start the autonomous task scheduler for a team (lead only)",
+    parameters: z.object({
+      team: z.string().describe("Team name"),
+      intervalMs: z.number().min(1000).max(60000).optional().describe("Interval between scheduler ticks in ms (default: 5000)"),
+      maxTasksPerCycle: z.number().min(1).max(50).optional().describe("Max tasks to assign per cycle (default: 10)"),
+      minAutoClaimScore: z.number().min(0).max(1).optional().describe("Minimum score for auto-claim (default: 0.3)"),
+    }),
+    execute: async (args, ctx): Promise<{
+      title: string
+      output: string
+      metadata: { success: boolean; error?: string }
+    }> => {
+      // Verify caller is lead
+      const team = await TeamRegistry.getTeam(args.team)
+      if (!team) {
+        return {
+          title: "Team Not Found",
+          output: `Team "${args.team}" does not exist`,
+          metadata: { success: false, error: "Team not found" },
+        }
+      }
+
+      if (team.lead !== ctx.agent) {
+        return {
+          title: "Permission Denied",
+          output: "Only the team lead can start the scheduler",
+          metadata: { success: false, error: "Permission denied" },
+        }
+      }
+
+      const result = await TeamScheduler.startScheduler(args.team, {
+        intervalMs: args.intervalMs,
+        maxTasksPerCycle: args.maxTasksPerCycle,
+        minAutoClaimScore: args.minAutoClaimScore,
+      })
+
+      return {
+        title: result.success ? "Scheduler Started" : "Start Failed",
+        output: result.success
+          ? `Autonomous scheduler started for team "${args.team}". Tasks will be automatically assigned based on agent capabilities.`
+          : result.error || "Failed to start scheduler",
+        metadata: { success: result.success, error: result.error },
+      }
+    },
+  })
+)
+
+export const TeamStopSchedulerTool = Tool.define(
+  "team_stop_scheduler",
+  async () => ({
+    description: "Stop the autonomous task scheduler for a team (lead only)",
+    parameters: z.object({
+      team: z.string().describe("Team name"),
+    }),
+    execute: async (args, ctx): Promise<{
+      title: string
+      output: string
+      metadata: { success: boolean; stats?: any; error?: string }
+    }> => {
+      // Verify caller is lead
+      const team = await TeamRegistry.getTeam(args.team)
+      if (!team) {
+        return {
+          title: "Team Not Found",
+          output: `Team "${args.team}" does not exist`,
+          metadata: { success: false, error: "Team not found" },
+        }
+      }
+
+      if (team.lead !== ctx.agent) {
+        return {
+          title: "Permission Denied",
+          output: "Only the team lead can stop the scheduler",
+          metadata: { success: false, error: "Permission denied" },
+        }
+      }
+
+      const result = await TeamScheduler.stopScheduler(args.team)
+
+      if (!result.success) {
+        return {
+          title: "Stop Failed",
+          output: result.error || "Failed to stop scheduler",
+          metadata: { success: false, error: result.error },
+        }
+      }
+
+      const stats = result.stats!
+      const runtime = Math.floor(stats.runtime / 1000)
+      const minutes = Math.floor(runtime / 60)
+      const seconds = runtime % 60
+
+      return {
+        title: "Scheduler Stopped",
+        output: `Scheduler stopped for team "${args.team}".
+
+Runtime: ${minutes}m ${seconds}s
+Cycles: ${stats.cycles}
+Tasks Scheduled: ${stats.tasksScheduled}
+Tasks Completed: ${stats.tasksCompleted}
+Tasks Failed: ${stats.tasksFailed}`,
+        metadata: { success: true, stats: result.stats },
+      }
+    },
+  })
+)
+
+export const TeamSchedulerStatusTool = Tool.define(
+  "team_scheduler_status",
+  async () => ({
+    description: "Get the status of the autonomous task scheduler",
+    parameters: z.object({
+      team: z.string().describe("Team name"),
+    }),
+    execute: async (args, ctx): Promise<{
+      title: string
+      output: string
+      metadata: { running: boolean; stats?: any }
+    }> => {
+      const status = await TeamScheduler.getSchedulerStatus(args.team)
+
+      if (!status.running) {
+        return {
+          title: "Scheduler Not Running",
+          output: `The scheduler is not currently running for team "${args.team}".
+
+Use team_start_scheduler to begin autonomous task assignment.`,
+          metadata: { running: false },
+        }
+      }
+
+      const stats = status.stats!
+      const runtime = Math.floor(stats.runtime / 1000)
+      const minutes = Math.floor(runtime / 60)
+      const seconds = runtime % 60
+
+      return {
+        title: "Scheduler Running",
+        output: `Scheduler is running for team "${args.team}".
+
+Runtime: ${minutes}m ${seconds}s
+Cycles: ${stats.cycles}
+Tasks Scheduled: ${stats.tasksScheduled}
+Tasks Completed: ${stats.tasksCompleted}
+Tasks Failed: ${stats.tasksFailed}
+
+Interval: ${status.options?.intervalMs}ms
+Max Tasks/Cycle: ${status.options?.maxTasksPerCycle}`,
+        metadata: { running: true, stats: status.stats },
+      }
+    },
+  })
+)
+
+export const TeamRunSchedulerTickTool = Tool.define(
+  "team_run_scheduler_tick",
+  async () => ({
+    description: "Run a single scheduler tick manually (for testing/debugging)",
+    parameters: z.object({
+      team: z.string().describe("Team name"),
+    }),
+    execute: async (args, ctx): Promise<{
+      title: string
+      output: string
+      metadata: { success: boolean; results?: any; error?: string }
+    }> => {
+      try {
+        const results = await TeamScheduler.schedulerTick(args.team)
+
+        return {
+          title: `Scheduler Tick #${results.cycle}`,
+          output: `Scheduler tick completed:
+
+Tasks assigned by lead: ${results.assigned}
+Tasks auto-claimed: ${results.claimed}
+Tasks completed: ${results.completed}
+Tasks failed: ${results.failed}
+Tasks retried: ${results.retried}
+Tasks unlocked: ${results.unlocked}`,
+          metadata: { success: true, results },
+        }
+      } catch (error) {
+        return {
+          title: "Tick Failed",
+          output: `Scheduler tick failed: ${error}`,
+          metadata: { success: false, error: String(error) },
+        }
+      }
+    },
+  })
+)
+
+// ============================================================================
+// BIDDING SYSTEM TOOLS - Phase 3
+// ============================================================================
+
+export const TeamStartBiddingTool = Tool.define(
+  "team_start_bidding",
+  async () => ({
+    description: "Start a bidding phase for a complex task (lead only)",
+    parameters: z.object({
+      team: z.string().describe("Team name"),
+      taskId: z.string().describe("Task ID to bid on"),
+      durationMs: z.number().min(5000).max(300000).optional().describe("Bidding duration in ms (default: 30000)"),
+      minConfidence: z.number().min(0).max(1).optional().describe("Minimum confidence required (default: 0.5)"),
+    }),
+    execute: async (args, ctx): Promise<{
+      title: string
+      output: string
+      metadata: { success: boolean; biddingId?: string; deadline?: number; error?: string }
+    }> => {
+      // Verify caller is lead
+      const team = await TeamRegistry.getTeam(args.team)
+      if (!team) {
+        return {
+          title: "Team Not Found",
+          output: `Team "${args.team}" does not exist`,
+          metadata: { success: false, error: "Team not found" },
+        }
+      }
+
+      if (team.lead !== ctx.agent) {
+        return {
+          title: "Permission Denied",
+          output: "Only the team lead can start bidding",
+          metadata: { success: false, error: "Permission denied" },
+        }
+      }
+
+      const result = await TeamBidding.startBiddingPhase(args.team, args.taskId, {
+        durationMs: args.durationMs,
+        minConfidence: args.minConfidence,
+      })
+
+      if (!result.success) {
+        return {
+          title: "Bidding Failed",
+          output: result.error || "Failed to start bidding",
+          metadata: { success: false, error: result.error },
+        }
+      }
+
+      const deadline = new Date(result.deadline!).toLocaleTimeString()
+
+      return {
+        title: "Bidding Started",
+        output: `Bidding phase started for task "${args.taskId}".
+
+Deadline: ${deadline}
+Bidding ID: ${result.biddingId}
+
+Agents can now submit bids using team_submit_bid.`,
+        metadata: {
+          success: true,
+          biddingId: result.biddingId,
+          deadline: result.deadline,
+        },
+      }
+    },
+  })
+)
+
+export const TeamSubmitBidTool = Tool.define(
+  "team_submit_bid",
+  async () => ({
+    description: "Submit a bid for a task in bidding phase",
+    parameters: z.object({
+      team: z.string().describe("Team name"),
+      taskId: z.string().describe("Task ID to bid on"),
+      confidence: z.number().min(0).max(1).describe("Confidence level (0-1)"),
+      estimatedMinutes: z.number().min(1).describe("Estimated completion time in minutes"),
+      reasoning: z.string().optional().describe("Optional reasoning for bid"),
+    }),
+    execute: async (args, ctx): Promise<{
+      title: string
+      output: string
+      metadata: { success: boolean; rank?: number; totalBids?: number; error?: string }
+    }> => {
+      const result = await TeamBidding.submitBid(
+        args.team,
+        args.taskId,
+        ctx.agent,
+        {
+          confidence: args.confidence,
+          estimatedCompletionTime: args.estimatedMinutes,
+          reasoning: args.reasoning,
+        }
+      )
+
+      if (!result.success) {
+        return {
+          title: "Bid Failed",
+          output: result.error || "Failed to submit bid",
+          metadata: { success: false, error: result.error },
+        }
+      }
+
+      return {
+        title: "Bid Submitted",
+        output: `Your bid for task "${args.taskId}" has been submitted.
+
+Confidence: ${(args.confidence * 100).toFixed(0)}%
+Estimated Time: ${args.estimatedMinutes} minutes
+
+Current Rank: #${result.rank} of ${result.totalBids} bids`,
+        metadata: {
+          success: true,
+          rank: result.rank,
+          totalBids: result.totalBids,
+        },
+      }
+    },
+  })
+)
+
+export const TeamGetBidsTool = Tool.define(
+  "team_get_bids",
+  async () => ({
+    description: "View current bids for a task in bidding phase",
+    parameters: z.object({
+      team: z.string().describe("Team name"),
+      taskId: z.string().describe("Task ID"),
+    }),
+    execute: async (args, ctx): Promise<{
+      title: string
+      output: string
+      metadata: { active: boolean; bidCount?: number; error?: string }
+    }> => {
+      const status = await TeamBidding.getBiddingStatus(args.team, args.taskId)
+
+      if (status.error) {
+        return {
+          title: "Error",
+          output: status.error,
+          metadata: { active: false, error: status.error },
+        }
+      }
+
+      if (!status.active) {
+        return {
+          title: "No Active Bidding",
+          output: status.status
+            ? `Bidding for task "${args.taskId}" is ${status.status}.`
+            : `No active bidding for task "${args.taskId}".`,
+          metadata: { active: false },
+        }
+      }
+
+      const timeRemaining = Math.floor((status.timeRemainingMs || 0) / 1000)
+      const minutes = Math.floor(timeRemaining / 60)
+      const seconds = timeRemaining % 60
+
+      const bidsText = status.rankedBids
+        ?.slice(0, 10)
+        .map((b) => {
+          const medal = b.rank === 1 ? "🥇" : b.rank === 2 ? "🥈" : b.rank === 3 ? "🥉" : "  "
+          return `${medal} #${b.rank} ${b.agentName}: ${(b.confidence * 100).toFixed(0)}% confidence, ${b.estimatedCompletionTime}m (score: ${b.score.toFixed(2)})`
+        })
+        .join("\n") || "No bids yet"
+
+      return {
+        title: `Bidding Active (${status.bids?.length || 0} bids)`,
+        output: `Bidding status for task "${args.taskId}":
+
+Status: ${status.status}
+Time Remaining: ${minutes}m ${seconds}s
+
+Top Bids:
+${bidsText}`,
+        metadata: {
+          active: true,
+          bidCount: status.bids?.length || 0,
+        },
+      }
+    },
+  })
+)
+
+export const TeamResolveBiddingTool = Tool.define(
+  "team_resolve_bidding",
+  async () => ({
+    description: "Resolve bidding and assign task to winner (lead only)",
+    parameters: z.object({
+      team: z.string().describe("Team name"),
+      taskId: z.string().describe("Task ID to resolve"),
+      manualWinner: z.string().optional().describe("Optional: manually specify winner instead of auto-selection"),
+    }),
+    execute: async (args, ctx): Promise<{
+      title: string
+      output: string
+      metadata: { success: boolean; winner?: string; totalBids?: number; error?: string }
+    }> => {
+      // Verify caller is lead
+      const team = await TeamRegistry.getTeam(args.team)
+      if (!team) {
+        return {
+          title: "Team Not Found",
+          output: `Team "${args.team}" does not exist`,
+          metadata: { success: false, error: "Team not found" },
+        }
+      }
+
+      if (team.lead !== ctx.agent) {
+        return {
+          title: "Permission Denied",
+          output: "Only the team lead can resolve bidding",
+          metadata: { success: false, error: "Permission denied" },
+        }
+      }
+
+      const result = await TeamBidding.resolveBidding(args.team, args.taskId, {
+        manualWinner: args.manualWinner,
+      })
+
+      if (!result.success) {
+        return {
+          title: "Resolution Failed",
+          output: result.error || "Failed to resolve bidding",
+          metadata: { success: false, error: result.error },
+        }
+      }
+
+      return {
+        title: "Bidding Resolved",
+        output: `Task "${args.taskId}" has been awarded to "${result.winner}".
+
+Winner Confidence: ${(result.bid!.confidence * 100).toFixed(0)}%
+Winner ETA: ${result.bid!.estimatedCompletionTime} minutes
+Total Bidders: ${result.allBids!.length}
+
+All bids:
+${result.allBids!
+  .sort((a, b) => TeamBidding["calculateBidScore"](b) - TeamBidding["calculateBidScore"](a))
+  .map((b, i) => `${i + 1}. ${b.agentName}: ${(b.confidence * 100).toFixed(0)}% confidence, ${b.estimatedCompletionTime}m`)
+  .join("\n")}`,
+        metadata: {
+          success: true,
+          winner: result.winner,
+          totalBids: result.allBids?.length,
+        },
+      }
+    },
+  })
+)
+
+export const TeamCancelBiddingTool = Tool.define(
+  "team_cancel_bidding",
+  async () => ({
+    description: "Cancel bidding for a task (lead only)",
+    parameters: z.object({
+      team: z.string().describe("Team name"),
+      taskId: z.string().describe("Task ID to cancel"),
+    }),
+    execute: async (args, ctx): Promise<{
+      title: string
+      output: string
+      metadata: { success: boolean; bidsDiscarded?: number; error?: string }
+    }> => {
+      // Verify caller is lead
+      const team = await TeamRegistry.getTeam(args.team)
+      if (!team) {
+        return {
+          title: "Team Not Found",
+          output: `Team "${args.team}" does not exist`,
+          metadata: { success: false, error: "Team not found" },
+        }
+      }
+
+      if (team.lead !== ctx.agent) {
+        return {
+          title: "Permission Denied",
+          output: "Only the team lead can cancel bidding",
+          metadata: { success: false, error: "Permission denied" },
+        }
+      }
+
+      const result = await TeamBidding.cancelBidding(args.team, args.taskId)
+
+      if (!result.success) {
+        return {
+          title: "Cancel Failed",
+          output: result.error || "Failed to cancel bidding",
+          metadata: { success: false, error: result.error },
+        }
+      }
+
+      return {
+        title: "Bidding Cancelled",
+        output: `Bidding for task "${args.taskId}" has been cancelled.
+
+${result.bids?.length || 0} bids have been discarded.`,
+        metadata: {
+          success: true,
+          bidsDiscarded: result.bids?.length,
+        },
+      }
+    },
+  })
+)
+
+// Phase 7: Circuit Breaker Tools
+
+import { CircuitBreaker } from "./circuitBreaker"
+
+export const TeamGetCircuitStatusTool = Tool.define(
+  "team_get_circuit_status",
+  async () => ({
+    description: "Get circuit breaker status for agents",
+    parameters: z.object({
+      team: z.string().describe("Team name"),
+      agent: z.string().optional().describe("Agent name (optional, get all if omitted)"),
+    }),
+    execute: async (args): Promise<{
+      title: string
+      output: string
+      metadata: { circuits: CircuitBreaker.CircuitBreakerState[] }
+    }> => {
+      let circuits: CircuitBreaker.CircuitBreakerState[]
+
+      if (args.agent) {
+        const state = CircuitBreaker.getCircuitState(args.team, args.agent)
+        circuits = state ? [state] : []
+      } else {
+        circuits = CircuitBreaker.getAllCircuitStates(args.team)
+      }
+
+      if (circuits.length === 0) {
+        return {
+          title: "No Circuit Data",
+          output: `No circuit breaker data available for team "${args.team}"`,
+          metadata: { circuits: [] },
+        }
+      }
+
+      const circuitLines = circuits.map((c) => {
+        const status = c.state === CircuitBreaker.CircuitState.CLOSED ? "✅ CLOSED" :
+                      c.state === CircuitBreaker.CircuitState.OPEN ? "❌ OPEN" : "⚠️ HALF_OPEN"
+        return `${c.agentName}: ${status} (${c.failureCount} failures, ${c.successCount} successes)`
+      })
+
+      return {
+        title: "Circuit Breaker Status",
+        output: `Circuit breaker status for team "${args.team}":
+
+${circuitLines.join("\n")}`,
+        metadata: { circuits },
+      }
+    },
+  })
+)
+
+export const TeamResetCircuitTool = Tool.define(
+  "team_reset_circuit",
+  async () => ({
+    description: "Reset circuit breaker for an agent (lead only)",
+    parameters: z.object({
+      team: z.string().describe("Team name"),
+      agent: z.string().describe("Agent name to reset"),
+    }),
+    execute: async (args, ctx): Promise<{
+      title: string
+      output: string
+      metadata: { success: boolean; error?: string }
+    }> => {
+      // Verify caller is lead
+      const team = await TeamRegistry.getTeam(args.team)
+      if (!team) {
+        return {
+          title: "Team Not Found",
+          output: `Team "${args.team}" does not exist`,
+          metadata: { success: false, error: "Team not found" },
+        }
+      }
+
+      if (team.lead !== ctx.agent) {
+        return {
+          title: "Permission Denied",
+          output: "Only the team lead can reset circuit breakers",
+          metadata: { success: false, error: "Permission denied" },
+        }
+      }
+
+      CircuitBreaker.resetCircuitBreaker(args.team, args.agent)
+
+      return {
+        title: "Circuit Reset",
+        output: `Circuit breaker for agent "${args.agent}" has been reset.`,
+        metadata: { success: true },
+      }
+    },
+  })
+)
+
 // Export all team tools
 export const TeamTools = [
   TeamCreateTool,
@@ -694,4 +1584,23 @@ export const TeamTools = [
   TeamCleanupTool,
   TeamInfoTool,
   TeamAddMemberTool,
+  // Orchestration Engine Tools - Phase 1
+  TeamAutoClaimTool,
+  TeamSelectBestAgentTool,
+  TeamGetAgentStatsTool,
+  TeamGetReadyTasksTool,
+  // Orchestration Engine Tools - Phase 2
+  TeamStartSchedulerTool,
+  TeamStopSchedulerTool,
+  TeamSchedulerStatusTool,
+  TeamRunSchedulerTickTool,
+  // Orchestration Engine Tools - Phase 3
+  TeamStartBiddingTool,
+  TeamSubmitBidTool,
+  TeamGetBidsTool,
+  TeamResolveBiddingTool,
+  TeamCancelBiddingTool,
+  // Phase 7: Circuit Breaker Tools
+  TeamGetCircuitStatusTool,
+  TeamResetCircuitTool,
 ]
